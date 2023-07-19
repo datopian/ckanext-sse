@@ -1,0 +1,14 @@
+# sse-js:
+#   filter: rjsmin
+#   output: ckanext-sse/%(version)s-sse.js
+#   contents:
+#     - js/sse.js
+#   extra:
+#     preload:
+#       - base/main
+
+# sse-css:
+#   filter: cssrewrite
+#   output: ckanext-sse/%(version)s-sse.css
+#   contents:
+#     - css/sse.css

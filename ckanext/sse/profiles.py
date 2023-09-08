@@ -1,8 +1,10 @@
+import urllib.parse
+import ckan.plugins.toolkit as tk
 from rdflib.namespace import Namespace
 from rdflib import URIRef, BNode, Literal
 from rdflib.namespace import Namespace, RDF, RDFS
-from ckanext.dcat.profiles import EuropeanDCATAP2Profile, URIRefOrLiteral
-
+from ckanext.dcat.profiles import EuropeanDCATAP2Profile, URIRefOrLiteral, CleanedURIRef
+from ckanext.dcat.utils import resource_uri, dataset_uri
 
 DCT = Namespace("http://purl.org/dc/terms/")
 DCAT = Namespace("http://www.w3.org/ns/dcat#")
@@ -22,9 +24,6 @@ class DCTProfile(EuropeanDCATAP2Profile):
         # call super method
         super(DCTProfile, self).graph_from_dataset(dataset_dict, dataset_ref)
         g = self.g
-
-        # remove previously added triples inorder to add custom triples
-        g.remove((dataset_ref, DCT.identifier, None))
 
         items = [
             ('source', DCT.source, None, Literal),
@@ -63,8 +62,60 @@ class DCTProfile(EuropeanDCATAP2Profile):
         if 'license_id' not in dataset_dict:
             dataset_dict['license_id'] = self._license(dataset_ref)
 
-        
+        if dataset_dict.get('relationships_as_object'):
+            for rel in dataset_dict.get('relationships_as_object'):
+                # if dict has __extras key
+                if '__extras' in rel:
+                    obj_rel = rel['__extras']['subject_package_id']
+                else:
+                    obj_rel = rel['subject_package_id']
 
+                dataset_dict = tk.get_action('package_show')(data_dict={'id': obj_rel})
+                rel_dataset_url = dataset_uri(dataset_dict)
+                g.add((dataset_ref, DCT.relation, URIRefOrLiteral(rel_dataset_url)))
+
+        if dataset_dict.get('relationships_as_subject'):
+            for rel in dataset_dict.get('relationships_as_subject'):
+                # if dict has __extras key
+                if '__extras' in rel:
+                    obj_rel = rel['__extras']['object_package_id']
+                else:
+                    obj_rel = rel['object_package_id']
+
+                dataset_dict = tk.get_action('package_show')(data_dict={'id': obj_rel})
+                rel_dataset_url = dataset_uri(dataset_dict)
+                g.add((dataset_ref, DCT.relation, URIRefOrLiteral(rel_dataset_url)))
+
+
+        # Resources
+        for resource_dict in dataset_dict.get('resources', []):
+
+            distribution = CleanedURIRef(resource_uri(resource_dict))
+            
+            #  Simple values
+            items = [
+                ('title', DCT.title, None, URIRefOrLiteral),
+                ('description', DCT.description, None, URIRefOrLiteral),
+            ]
+            
+            self._add_triples_from_dict(resource_dict, distribution, items)
+
+            if dataset_dict.get('source'):
+                g.add((distribution, DCT.source, URIRefOrLiteral(dataset_dict.get('source'))))
+
+            if dataset_dict.get('rights'):
+                g.add((distribution, DCT.accessRights, URIRefOrLiteral(dataset_dict.get('rights'))))
+            
+            if dataset_dict.get('language'):
+                g.add((distribution, DCT.language, URIRefOrLiteral(dataset_dict.get('language'))))
+
+            if resource_dict.get('size'):
+                # convert bytes to megabytes
+                size = int(resource_dict.get('size')) / 1000000
+                g.add((distribution, DCT.SizeOrDuration, URIRefOrLiteral(size)))
+               
+        
+                
         
         
 

@@ -16,6 +16,10 @@ dataset_fields:
   preset: dataset_slug
   form_placeholder: eg. my-dataset
 
+- field_name: identifier
+  label: Identifier
+  help_text: Provide a unique identifier for the dataset. If not provided, falls back to the dataset name.
+
 - field_name: notes
   label: Description
   form_snippet: markdown.html
@@ -57,15 +61,20 @@ dataset_fields:
   display_snippet: email.html
   display_email_name_field: author
 
+- field_name: contributor
+  label: Contributor
+  form_placeholder: 
+  display_property: dc:contributor
+
 - field_name: maintainer
   label: Maintainer
   form_placeholder: Joe Bloggs
-  display_property: dc:contributor
+  display_property: dc:maintainer
 
 - field_name: maintainer_email
   label: Maintainer Email
   form_placeholder: joe@example.com
-  display_property: dc:contributor
+  display_property: dc:maintainer
   display_snippet: email.html
   display_email_name_field: maintainer
 
@@ -91,6 +100,9 @@ dataset_fields:
 
 - field_name: coverage
   label: Coverage
+  preset: json_object
+  validators: ignore_missing coverage_json_object
+  help_text: A spatial or temoral coverage of the dataset in json format.
 
 - field_name: rights
   label: Rights

@@ -1,4 +1,5 @@
 import urllib.parse
+import json
 import ckan.plugins.toolkit as tk
 from rdflib.namespace import Namespace
 from rdflib import URIRef, BNode, Literal
@@ -35,9 +36,9 @@ class DCTProfile(EuropeanDCATAP2Profile):
             ('is_version_of', DCT.isVersionOf, None, URIRefOrLiteral),
             ('contact_point', DCAT.contactPoint, None, Literal),
             ('author', DCT.creator, None, Literal),
-            ('maintainer', DCT.contributor, ['maintainer_email'], Literal),
-            ('date', DCT.date, None, Literal),
-            ('name', DCT.identifier, None, Literal),
+            ('contributor', DCT.contributor, None, Literal),
+            ('metadata_modified', DCT.date, None, Literal),
+            ('identifier', DCT.identifier, 'name', Literal),
             ('date', DCT.temporal, None, Literal),
         ]
         self._add_triples_from_dict(dataset_dict, dataset_ref, items)
@@ -62,6 +63,27 @@ class DCTProfile(EuropeanDCATAP2Profile):
         if 'license_id' not in dataset_dict:
             dataset_dict['license_id'] = self._license(dataset_ref)
 
+        # Coverage
+        if dataset_dict.get('coverage'):
+            try:
+                # check if coverage is a string or dict
+                if isinstance(dataset_dict.get('coverage'), str):
+                    coverages_dict = json.loads(dataset_dict.get('coverage'))
+                else:
+                    coverages_dict = dataset_dict.get('coverage')
+                    
+                if 'temporal' in coverages_dict.get('type'):
+                    g.add((dataset_ref, DCT.coverage, 
+                        Literal('%s - %s' % (coverages_dict.get('start'), 
+                                                coverages_dict.get('end')))))
+                    
+                elif 'spatial' in coverages_dict.get('type'):
+                    g.add((dataset_ref, DCT.coverage, 
+                        Literal('%s , %s' % (coverages_dict.get('location_name'), 
+                                                coverages_dict.get('location_geojson')))))
+            except:
+                pass
+          
         if dataset_dict.get('relationships_as_object'):
             for rel in dataset_dict.get('relationships_as_object'):
                 # if dict has __extras key
@@ -73,6 +95,7 @@ class DCTProfile(EuropeanDCATAP2Profile):
                 dataset_dict = tk.get_action('package_show')(data_dict={'id': obj_rel})
                 rel_dataset_url = dataset_uri(dataset_dict)
                 g.add((dataset_ref, DCT.relation, URIRefOrLiteral(rel_dataset_url)))
+
 
         if dataset_dict.get('relationships_as_subject'):
             for rel in dataset_dict.get('relationships_as_subject'):
@@ -113,16 +136,3 @@ class DCTProfile(EuropeanDCATAP2Profile):
                 # convert bytes to megabytes
                 size = int(resource_dict.get('size')) / 1000000
                 g.add((distribution, DCT.SizeOrDuration, URIRefOrLiteral(size)))
-               
-        
-                
-        
-        
-
-
-
-        
-
-        
-
-           

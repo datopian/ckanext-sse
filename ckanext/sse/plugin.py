@@ -1,12 +1,10 @@
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
-from rdflib.namespace import Namespace
-from ckanext.dcat.profiles import RDFProfile
-from rdflib import URIRef, BNode, Literal
-from rdflib.namespace import Namespace, RDF, XSD, SKOS, RDFS
+from ckanext.sse.validators import coverage_json_object
 
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
+    plugins.implements(plugins.IValidators)
     
     # IConfigurer
 
@@ -14,3 +12,9 @@ class SsePlugin(plugins.SingletonPlugin):
         toolkit.add_template_directory(config_, "templates")
         toolkit.add_public_directory(config_, "public")
         toolkit.add_resource("assets", "sse")
+
+    # IValidators
+    def get_validators(self):
+        return {
+            'coverage_json_object': coverage_json_object,
+        }

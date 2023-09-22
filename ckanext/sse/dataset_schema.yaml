@@ -3,9 +3,7 @@ dataset_type: dataset
 about: A reimplementation of the default CKAN dataset schema
 about_url: http://github.com/ckan/ckanext-scheming
 
-
 dataset_fields:
-
 - field_name: title
   label: Title
   preset: title
@@ -47,7 +45,7 @@ dataset_fields:
 - field_name: version
   label: Version
   validators: ignore_missing unicode_safe package_version_validator
-  form_placeholder: '1.0'
+  form_placeholder: "1.0"
 
 - field_name: author
   label: Author
@@ -63,7 +61,7 @@ dataset_fields:
 
 - field_name: contributor
   label: Contributor
-  form_placeholder: 
+  form_placeholder:
   display_property: dc:contributor
 
 - field_name: maintainer
@@ -82,7 +80,7 @@ dataset_fields:
   label: Date
   placeholder: eg. 2023-01-01
   preset: date
-  
+
 - field_name: language
   label: Language
   preset: select
@@ -132,7 +130,6 @@ dataset_fields:
   label: Access
 
 resource_fields:
-
 - field_name: url
   label: URL
   preset: resource_url_upload

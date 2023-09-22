@@ -37,3 +37,10 @@ def coverage_json_object(value, context):
     else:
         raise Invalid(
             _('Unsupported type for JSON field: {}').format(type(value)))
+    
+
+def resource_type(value, context):
+
+    if value not in ['regular', 'documentation']:
+        raise Invalid(_('Resource type must be either "regular" or "documentation"'))
+    return value

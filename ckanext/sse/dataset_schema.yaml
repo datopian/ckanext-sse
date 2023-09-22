@@ -149,3 +149,13 @@ resource_fields:
 - field_name: format
   label: Format
   preset: resource_format_autocomplete
+
+- field_name: resource_type
+  label: Type
+  preset: select
+  required: true
+  choices:
+    - value: regular
+      label: Regular
+    - value: documentation
+      label: Documentation

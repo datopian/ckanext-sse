@@ -79,6 +79,15 @@ def schema_json_object(value, context):
 
     return value
         
+def schema_output_string_json(value, context):
+
+    if isinstance(value, six.string_types):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
 
 def resource_type(value, context):
 

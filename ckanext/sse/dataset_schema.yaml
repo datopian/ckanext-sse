@@ -161,3 +161,4 @@ resource_fields:
   label: Schema
   preset: json_object
   validators: ignore_missing schema_json_object
+  output_validators: schema_output_string_json

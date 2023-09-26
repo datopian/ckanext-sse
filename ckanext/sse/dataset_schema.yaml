@@ -39,7 +39,6 @@ dataset_fields:
 
 - field_name: source
   label: Source
-  form_placeholder: SSEN Distribution
   display_property: foaf:homepage
 
 - field_name: version
@@ -101,9 +100,6 @@ dataset_fields:
   preset: json_object
   validators: ignore_missing coverage_json_object
   help_text: A spatial or temoral coverage of the dataset in json format.
-
-- field_name: rights
-  label: Rights
 
 - field_name: conforms_to
   label: Conforms to

@@ -29,7 +29,7 @@ class DCTProfile(EuropeanDCATAP2Profile):
         items = [
             ('source', DCT.source, None, Literal),
             ('language', DCT.title, None, Literal),
-            ('rights', DCT.accessRights, None, Literal),
+            ('license_title', DCT.accessRights, None, Literal),
             ('contactPoint', DCT.contactPoint, None, Literal),
             ('conforms_to', DCT.conformsTo, None, Literal),
             ('has_version', DCT.hasVersion, None, URIRefOrLiteral),
@@ -127,7 +127,7 @@ class DCTProfile(EuropeanDCATAP2Profile):
                 g.add((distribution, DCT.source, URIRefOrLiteral(dataset_dict.get('source'))))
 
             if dataset_dict.get('rights'):
-                g.add((distribution, DCT.accessRights, URIRefOrLiteral(dataset_dict.get('rights'))))
+                g.add((distribution, DCT.accessRights, URIRefOrLiteral(dataset_dict.get('license_title'))))
             
             if dataset_dict.get('language'):
                 g.add((distribution, DCT.language, URIRefOrLiteral(dataset_dict.get('language'))))

@@ -1,6 +1,10 @@
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
-from ckanext.sse.validators import coverage_json_object, resource_type
+from ckanext.sse.validators import (
+    coverage_json_object,
+    resource_type, 
+    schema_json_object
+)
 
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
@@ -16,5 +20,6 @@ class SsePlugin(plugins.SingletonPlugin):
     def get_validators(self):
         return {
             'coverage_json_object': coverage_json_object,
+            'schema_json_object': schema_json_object,
             'resource_type': resource_type
         }

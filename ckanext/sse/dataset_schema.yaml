@@ -156,3 +156,8 @@ resource_fields:
       label: Regular
     - value: documentation
       label: Documentation
+      
+- field_name: schema
+  label: Schema
+  preset: json_object
+  validators: ignore_missing schema_json_object

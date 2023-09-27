@@ -10,7 +10,11 @@ def package_update(up_func, context, data_dict):
             if isinstance(resource.get('schema'), list) or \
                 isinstance(resource.get('schema'), dict):
                 resource['schema'] = json.dumps(resource['schema'])
-
+    
+    coverage = data_dict.get('coverage', False)
+    if coverage:
+        if isinstance(coverage, list) or isinstance(coverage, dict):
+            data_dict['coverage'] = json.dumps(coverage)
     result = up_func(context, data_dict)
     return result
 

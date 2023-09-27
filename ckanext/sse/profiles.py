@@ -40,11 +40,11 @@ class DCTProfile(EuropeanDCATAP2Profile):
             ('contact_point', DCAT.contactPoint, None, Literal),
             ('author', DCT.creator, None, Literal),
             ('contributor', DCT.contributor, None, Literal),
-            ('metadata_modified', DCT.date, None, Literal),
+            ('date', DCT.date, None, Literal),
             ('relation', DCT.relation, None, Literal),
             ('date', DCT.temporal, None, Literal),
-            
         ]
+        
         self._add_triples_from_dict(dataset_dict, dataset_ref, items)
 
         g.remove((dataset_ref, DCT.identifier, None))

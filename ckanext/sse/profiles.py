@@ -1,5 +1,5 @@
-import urllib.parse
 import json
+import rdflib
 import ckan.plugins.toolkit as tk
 from rdflib.namespace import Namespace
 from rdflib import URIRef, BNode, Literal
@@ -25,6 +25,9 @@ class DCTProfile(EuropeanDCATAP2Profile):
         # call super method
         super(DCTProfile, self).graph_from_dataset(dataset_dict, dataset_ref)
         g = self.g
+        dataset_uri = (str(dataset_ref)
+            if isinstance(dataset_ref, rdflib.term.URIRef)
+            else '')
 
         items = [
             ('source', DCT.source, None, Literal),
@@ -38,12 +41,16 @@ class DCTProfile(EuropeanDCATAP2Profile):
             ('author', DCT.creator, None, Literal),
             ('contributor', DCT.contributor, None, Literal),
             ('metadata_modified', DCT.date, None, Literal),
-            ('identifier', DCT.identifier, 'name', Literal),
+            ('relation', DCT.relation, None, Literal),
             ('date', DCT.temporal, None, Literal),
+            
         ]
         self._add_triples_from_dict(dataset_dict, dataset_ref, items)
 
+        g.remove((dataset_ref, DCT.identifier, None))
+        g.add((dataset_ref, DCT.identifier, URIRefOrLiteral(dataset_uri)))
 
+    
         # Subject 
         for tag in dataset_dict.get('tags', []):
             g.add((dataset_ref, DCT.subject, Literal(tag['name'])))
@@ -67,48 +74,12 @@ class DCTProfile(EuropeanDCATAP2Profile):
         if dataset_dict.get('coverage'):
             try:
                 # check if coverage is a string or dict
-                if isinstance(dataset_dict.get('coverage'), str):
-                    coverages_dict = json.loads(dataset_dict.get('coverage'))
-                else:
-                    coverages_dict = dataset_dict.get('coverage')
-                    
-                if 'temporal' in coverages_dict.get('type'):
-                    g.add((dataset_ref, DCT.coverage, 
-                        Literal('%s - %s' % (coverages_dict.get('start'), 
-                                                coverages_dict.get('end')))))
-                    
-                elif 'spatial' in coverages_dict.get('type'):
-                    g.add((dataset_ref, DCT.coverage, 
-                        Literal('%s , %s' % (coverages_dict.get('location_name'), 
-                                                coverages_dict.get('location_geojson')))))
-            except:
+                if isinstance(dataset_dict.get('coverage'), list):
+                    coverage = json.dumps(dataset_dict.get('coverage'))
+                    g.add((dataset_ref, DCT.coverage, Literal(coverage)))
+            except Exception as e:
                 pass
-          
-        if dataset_dict.get('relationships_as_object'):
-            for rel in dataset_dict.get('relationships_as_object'):
-                # if dict has __extras key
-                if '__extras' in rel:
-                    obj_rel = rel['__extras']['subject_package_id']
-                else:
-                    obj_rel = rel['subject_package_id']
-
-                dataset_dict = tk.get_action('package_show')(data_dict={'id': obj_rel})
-                rel_dataset_url = dataset_uri(dataset_dict)
-                g.add((dataset_ref, DCT.relation, URIRefOrLiteral(rel_dataset_url)))
-
-
-        if dataset_dict.get('relationships_as_subject'):
-            for rel in dataset_dict.get('relationships_as_subject'):
-                # if dict has __extras key
-                if '__extras' in rel:
-                    obj_rel = rel['__extras']['object_package_id']
-                else:
-                    obj_rel = rel['object_package_id']
-
-                dataset_dict = tk.get_action('package_show')(data_dict={'id': obj_rel})
-                rel_dataset_url = dataset_uri(dataset_dict)
-                g.add((dataset_ref, DCT.relation, URIRefOrLiteral(rel_dataset_url)))
-
+    
 
         # Resources
         for resource_dict in dataset_dict.get('resources', []):

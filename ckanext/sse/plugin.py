@@ -31,5 +31,6 @@ class SsePlugin(plugins.SingletonPlugin):
     # IActions
     def get_actions(self):
         return {
-            "package_update": action.package_update
+            "package_update": action.package_update,
+            "search_package_list": action.search_package_list
         }

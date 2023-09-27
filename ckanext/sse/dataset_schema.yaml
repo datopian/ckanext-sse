@@ -14,9 +14,6 @@ dataset_fields:
   preset: dataset_slug
   form_placeholder: eg. my-dataset
 
-- field_name: identifier
-  label: Identifier
-  help_text: Provide a unique identifier for the dataset. If not provided, falls back to the dataset name.
 
 - field_name: notes
   label: Description
@@ -40,6 +37,11 @@ dataset_fields:
 - field_name: source
   label: Source
   display_property: foaf:homepage
+
+- field_name: relation
+  label: Relation
+  preset: relation_preset
+  display_snippet: relation.html
 
 - field_name: version
   label: Version
@@ -115,12 +117,36 @@ dataset_fields:
 
 - field_name: ib1_trust_framework
   label: Trust Framework
-
+  preset: select
+  choices:
+    - value: ib1:open-energy.registry.ib1.org
+      label: Open Energy
+    - value: ib1:general.registry.ib1.org
+      label: General
+      
 - field_name: ib1_sensitivity_class
   label: Sensitivity Class
+  preset: select
+  choices:
+    - value: IB1-O
+      label: IB1-O
+    - value: IB1-SA
+      label: IB1-SA
+    - value: IB1-SB
+      label: IB1-SB
 
 - field_name: ib1_dataset_assurance
   label: Dataset Assurance
+  preset: select
+  choices:
+    - value: IcebreakerOne.DatasetLevel1
+      label: IcebreakerOne.DatasetLevel1
+    - value: IcebreakerOne.DatasetLevel2
+      label: IcebreakerOne.DatasetLevel2
+    - value: IcebreakerOne.DatasetLevel3
+      label: IcebreakerOne.DatasetLevel3
+    - value: IcebreakerOne.DatasetLevel4
+      label: IcebreakerOne.DatasetLevel4
 
 - field_name: ib1_access
   label: Access

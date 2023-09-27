@@ -12,6 +12,9 @@ def coverage_json_object(value, context):
     """
     Validates that the value is a valid coverage JSON object.
     """
+    if not value:
+        return 
+    
     def _coverage_validator(value):
         coverage_schema = {
             "type": "array",

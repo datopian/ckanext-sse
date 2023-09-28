@@ -118,6 +118,7 @@ dataset_fields:
 - field_name: ib1_trust_framework
   label: Trust Framework
   preset: select
+  validators: ignore_missing ib1_trust_framework_validator
   choices:
     - value: ib1:open-energy.registry.ib1.org
       label: Open Energy
@@ -127,6 +128,7 @@ dataset_fields:
 - field_name: ib1_sensitivity_class
   label: Sensitivity Class
   preset: select
+  validators: ignore_missing ib1_sensitivity_class_validator
   choices:
     - value: IB1-O
       label: IB1-O
@@ -137,6 +139,7 @@ dataset_fields:
 
 - field_name: ib1_dataset_assurance
   label: Dataset Assurance
+  validators: ib1_dataset_assurance_validator
   preset: select
   choices:
     - value: IcebreakerOne.DatasetLevel1
@@ -172,6 +175,7 @@ resource_fields:
 - field_name: resource_type
   label: Type
   preset: select
+  validators: ignore_missing resource_type_validator
   required: true
   choices:
     - value: regular

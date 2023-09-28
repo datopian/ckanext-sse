@@ -38,6 +38,7 @@ class SsePlugin(plugins.SingletonPlugin):
     # IActions
     def get_actions(self):
         return {
+            "package_create": action.package_create,
             "package_update": action.package_update,
             "search_package_list": action.search_package_list,
         }

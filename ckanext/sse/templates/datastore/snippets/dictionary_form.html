@@ -1,0 +1,52 @@
+{% import 'macros/form.html' as form %}
+
+<h3>{{ _( "Field {num}.").format(num=position) }} {{ field.id }} ({{ field.type }})</h3>
+{#
+  Data Dictionary fields may be added this snippet. New fields following
+  the 'info__' ~ position ~ '__namegoeshere' convention will be saved
+  as part of the "info" object on the column.
+#}
+
+
+{{ form.input('info__' ~ position ~ '__title',
+  label=_('Title'), id='field-f' ~ position ~ 'title',
+  value=field.get('info', {}).get('title', ''), classes=['control-full']) }}
+
+{{ form.select('info__' ~ position ~ '__type',
+label=_('Type'), options=[
+  {'name': '', 'value': ''},
+  {'name': 'string', 'value': 'string'},
+  {'name': 'number', 'value': 'number'},
+  {'name': 'integer', 'value': 'integer'},
+  {'name': 'boolean', 'value': 'boolean'},
+  {'name': 'object', 'value': 'object'},
+  {'name': 'array', 'value': 'array'},
+  {'name': 'date', 'value': 'date'},
+  {'name': 'time', 'value': 'time'},
+  {'name': 'datetime', 'value': 'datetime'},
+  {'name': 'timestamptz', 'value': 'timestamptz'},
+  {'name': 'year', 'value': 'year'},
+  {'name': 'yearmonth', 'value': 'yearmonth'},
+  {'name': 'duration', 'value': 'duration'},
+  {'name': 'geopoint', 'value': 'geopoint'},
+  {'name': 'geojson', 'value': 'geojson'},
+  {'name': 'any', 'value': 'any'},
+], selected=field.get('info', {}).get('type', '')) }}
+
+{{ form.markdown('info__' ~ position ~ '__description',
+  label=_('Description'), id='field-d' ~ position ~ 'description',
+  value=field.get('info', {}).get('description', '')) }}
+
+{{ form.markdown('info__' ~ position ~ '__comment',
+  label=_('Comment'), id='field-d' ~ position ~ 'comment',
+  value=field.get('info', {}).get('comment', '')) }}
+
+{{ form.input('info__' ~ position ~ '__example',
+  label=_('Example'), id='field-f' ~ position ~ 'example',
+  value=field.get('info', {}).get('example', ''), classes=['control-full']) }}  
+
+{{ form.input('info__' ~ position ~ '__unit',
+  label=_('Unit'), id='field-f' ~ position ~ 'unit',
+  value=field.get('info', {}).get('unit', ''), classes=['control-full']) }} 
+  
+  

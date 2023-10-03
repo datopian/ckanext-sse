@@ -62,19 +62,25 @@ def schema_json_object(value, context):
 
     def _schema_validator(value):
         frictionless_schema = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "comment": {"type": "string"},
-                    "description": {"type": "string"},
-                    "title": {"type": "string"},
-                    "type": {"type": "string"},
-                    "example": {"type": "string"},
-                    "unit": {"type": "string"},
+            "type": "object",
+            "properties": {
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "comment": {"type": "string"},
+                            "description": {"type": "string"},
+                            "title": {"type": "string"},
+                            "type": {"type": "string"},
+                            "example": {"type": "string"},
+                            "unit": {"type": "string"},
+                        },
+                        "required": ["title", "type"],
+                        "additionalProperties": False,
+                    },
                 },
-                "required": ["title", "type"],
-                "additionalProperties": False,
             },
         }
 
@@ -91,6 +97,7 @@ def schema_json_object(value, context):
         _schema_validator(json.loads(value))
     elif isinstance(value, dict):
         _schema_validator(value)
+
     else:
         raise Invalid(
             _("JSON schema is not valid according to Frictionless schema standard.")

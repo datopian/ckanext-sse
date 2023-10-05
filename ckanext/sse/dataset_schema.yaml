@@ -120,9 +120,9 @@ dataset_fields:
   preset: select
   validators: ignore_missing ib1_trust_framework_validator
   choices:
-    - value: ib1:open-energy.registry.ib1.org
+    - value: http://open-energy.registry.ib1.org
       label: Open Energy
-    - value: ib1:general.registry.ib1.org
+    - value: http://general.registry.ib1.org
       label: General
       
 - field_name: ib1_sensitivity_class

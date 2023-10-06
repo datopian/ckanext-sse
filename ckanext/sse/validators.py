@@ -125,8 +125,8 @@ def ib1_trust_framework_validator(value, context):
     if not value:
         return
     trust_framework = [
-        "ib1:general.registry.ib1.org",
-        "ib1:open-energy.registry.ib1.org",
+        "http://open-energy.registry.ib1.org",
+        "http://general.registry.ib1.org",
     ]
 
     if value.lower() not in trust_framework:

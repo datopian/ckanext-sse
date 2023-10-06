@@ -9,6 +9,7 @@ from ckanext.dcat.utils import resource_uri, dataset_uri
 
 DCT = Namespace("http://purl.org/dc/terms/")
 DCAT = Namespace("http://www.w3.org/ns/dcat#")
+ib1 = Namespace("http://registry.ib1.org/ns/1.0/#")
 
 
 class DCTProfile(EuropeanDCATAP2Profile):
@@ -29,10 +30,12 @@ class DCTProfile(EuropeanDCATAP2Profile):
         dataset_uri = (
             str(dataset_ref) if isinstance(dataset_ref, rdflib.term.URIRef) else ""
         )
+        # Binding the namespace
+        g.bind("ib1", ib1)
 
         items = [
             ("source", DCT.source, None, Literal),
-            ("language", DCT.title, None, Literal),
+            ("language", DCT.title, None, URIRefOrLiteral),
             ("license_title", DCT.accessRights, None, Literal),
             ("contactPoint", DCT.contactPoint, None, Literal),
             ("conforms_to", DCT.conformsTo, None, Literal),
@@ -44,10 +47,10 @@ class DCTProfile(EuropeanDCATAP2Profile):
             ("date", DCT.date, None, Literal),
             ("relation", DCT.relation, None, Literal),
             ("date", DCT.temporal, None, Literal),
-            ("ib1_trust_framework", DCAT.ib1_trust_framework, None, Literal),
-            ("ib1_sensitivity_class", DCAT.ib1_sensitivity_class, None, Literal),
-            ("ib1_dataset_assurance", DCAT.ib1_dataset_assurance, None, Literal),
-            ("ib1_access", DCAT.ib1_access, None, Literal),
+            ("ib1_trust_framework", ib1.trustFramework, None, Literal),
+            ("ib1_sensitivity_class", ib1.sensitivityClass, None, Literal),
+            ("ib1_dataset_assurance", ib1.datasetAssurance, None, Literal),
+            ("ib1_access", ib1.access, None, Literal),
         ]
 
         self._add_triples_from_dict(dataset_dict, dataset_ref, items)

@@ -35,7 +35,7 @@ class DCTProfile(EuropeanDCATAP2Profile):
 
         items = [
             ("source", DCT.source, None, Literal),
-            ("language", DCT.title, None, URIRefOrLiteral),
+            ("language", DCT.language, None, URIRefOrLiteral),
             ("license_title", DCT.accessRights, None, Literal),
             ("contactPoint", DCT.contactPoint, None, Literal),
             ("conforms_to", DCT.conformsTo, None, Literal),

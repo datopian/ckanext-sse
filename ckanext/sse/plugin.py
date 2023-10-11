@@ -14,6 +14,7 @@ from ckanext.sse.validators import (
 
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
+    plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IValidators)
     plugins.implements(plugins.IActions)
 
@@ -22,6 +23,41 @@ class SsePlugin(plugins.SingletonPlugin):
         toolkit.add_template_directory(config_, "templates")
         toolkit.add_public_directory(config_, "public")
         toolkit.add_resource("assets", "sse")
+
+    # IPackageController
+    def create(self, entity):
+        if entity.owner_org:
+            org_name = toolkit.get_action("organization_show")(
+                {"ignore_auth": True}, {"id": entity.owner_org}
+            )["name"]
+            entity.url = "{0}/@{1}/{2}".format(
+                toolkit.config.get("ckanext.dcat.base_uri", "").rstrip("/"),
+                org_name,
+                entity.name,
+            )
+        else:
+            entity.url = "{0}/dataset/{1}".format(
+                toolkit.config.get("ckanext.dcat.base_uri", "").rstrip("/"),
+                entity.name,
+            )
+        return entity
+
+    def edit(self, entity):
+        if entity.owner_org:
+            org_name = toolkit.get_action("organization_show")(
+                {"ignore_auth": True}, {"id": entity.owner_org}
+            )["name"]
+            entity.url = "{0}/@{1}/{2}".format(
+                toolkit.config.get("ckanext.dcat.base_uri", "").rstrip("/"),
+                org_name,
+                entity.name,
+            )
+        else:
+            entity.url = "{0}/dataset/{1}".format(
+                toolkit.config.get("ckanext.dcat.base_uri", "").rstrip("/"),
+                entity.name,
+            )
+        return entity
 
     # IValidators
     def get_validators(self):

@@ -116,8 +116,10 @@ def schema_output_string_json(value, context):
 
 
 def resource_type_validator(value, context):
-    if value not in ["regular", "documentation"]:
-        raise Invalid(_(' Resource type must be either "regular" or "documentation"'))
+    if value not in ["regular", "documentation", "historic"]:
+        raise Invalid(
+            _('Resource type must be either "regular", "documentation" or , "historic"')
+        )
     return value
 
 

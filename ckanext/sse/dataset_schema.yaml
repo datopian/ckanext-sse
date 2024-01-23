@@ -182,6 +182,8 @@ resource_fields:
       label: Regular
     - value: documentation
       label: Documentation
+    - value: historic
+      label: Historic
       
 - field_name: schema
   label: Schema fields

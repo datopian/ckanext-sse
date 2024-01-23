@@ -1,0 +1,96 @@
+{#
+  Renders a list of resources with icons and view links.
+
+  resources - A list of resources (dicts) to render
+  pkg - A package dict that the resources belong to.
+
+  Example:
+
+  {% snippet "package/snippets/resources_list.html", pkg=pkg, resources=pkg.resources %}
+
+  #}
+{% set resources_dict = {'regular': [], 'documentation': [], 'historic': []} %}
+
+{% for resource in resources %}
+  {% set resource_type = resource.get('resource_type') %}
+  {% if resource_type in resources_dict %}
+    {% do resources_dict[resource_type].append(resource) %}
+  {% else %}
+    {% do resources_dict['regular'].append(resource) %}
+  {% endif %}
+{% endfor %}
+
+{% set regular_resources = resources_dict['regular'] %}
+{% set documentation_resources = resources_dict['documentation'] %}
+{% set historic_resources = resources_dict['historic'] %}
+
+
+  <section id="dataset-resources" class="resources">
+    <h2>{{ _('Data and Resources') }}</h2>
+    {% block resource_list %}
+      {% if resources %}
+        {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
+        <ul class="{% block resource_list_class %}resource-list{% endblock %}">
+          {% block resource_list_inners %}
+            {% for resource in regular_resources %}
+              {% snippet 'package/snippets/resource_item.html', pkg=pkg, res=resource, can_edit=can_edit %}
+            {% endfor %}
+          {% endblock %}
+        </ul>
+      {% else %}
+        {% block resource_list_empty %}
+          {% if h.check_access('resource_create', {'package_id': pkg['id']}) %}
+            {% trans url=h.url_for(pkg.type ~ '_resource.new', id=pkg.name) %}
+            <p class="empty">This dataset has no data, <a href="{{ url }}">why not add some?</a></p>
+            {% endtrans %}
+          {% else %}
+            <p class="empty">{{ _('This dataset has no data') }}</p>
+          {% endif %}
+        {% endblock %}
+      {% endif %}
+    {% endblock %}
+
+
+    {% if documentation_resources %}
+    <br>
+      <h2>{{ _('Documentation  ') }}</h2>
+      {% block documentation_resource_list %}
+        {% if documentation_resources %}
+          {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
+          <ul class="{% block documentation_resource_list_class %}resource-list{% endblock %}">
+            {% block documentation_resource_list_inners %}
+              {% for resource in documentation_resources %}
+                {% snippet 'package/snippets/resource_item.html', pkg=pkg, res=resource, can_edit=can_edit %}
+              {% endfor %}
+            {% endblock %}
+          </ul>
+        {% endif %}
+      {% endblock %}
+    {% endif %}
+
+
+    {% if historic_resources %}
+    <br>
+      <h2>{{ _('Historic  Data') }}</h2>
+      {% block historic_resources_list %}
+        {% if historic_resources %}
+          {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
+          <ul class="{% block historic_resources_list_class %}resource-list{% endblock %}">
+            {% block historic_resources_list_inners %}
+              {% for resource in historic_resources %}
+                {% snippet 'package/snippets/resource_item.html', pkg=pkg, res=resource, can_edit=can_edit %}
+              {% endfor %}
+            {% endblock %}
+          </ul>
+        {% endif %}
+      {% endblock %}
+    {% endif %}
+
+  </section>
+
+
+
+  
+
+
+  

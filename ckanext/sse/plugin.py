@@ -1,3 +1,4 @@
+import json
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 from ckanext.sse import action
@@ -17,6 +18,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IValidators)
     plugins.implements(plugins.IActions)
+    plugins.implements(plugins.IPackageController, inherit=True)
 
     # IConfigurer
     def update_config(self, config_):
@@ -58,6 +60,12 @@ class SsePlugin(plugins.SingletonPlugin):
                 entity.name,
             )
         return entity
+
+    # IPackageController
+    def before_dataset_index(self, data_dict):
+        if data_dict.get("coverage", False):
+            data_dict["coverage"] = json.dumps(data_dict["coverage"])
+        return data_dict
 
     # IValidators
     def get_validators(self):

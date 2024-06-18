@@ -5,6 +5,7 @@ import logging
 from ckanext.sse import action
 from ckanext.sse.validators import (
     coverage_json_object,
+    convert_string_to_array,
     resource_type_validator,
     schema_json_object,
     schema_output_string_json,
@@ -81,6 +82,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "ib1_trust_framework_validator": ib1_trust_framework_validator,
             "ib1_sensitivity_class_validator": ib1_sensitivity_class_validator,
             "ib1_dataset_assurance_validator": ib1_dataset_assurance_validator,
+            "convert_string_to_array": convert_string_to_array,
         }
 
     # IActions
@@ -124,7 +126,7 @@ class SsePlugin(plugins.SingletonPlugin):
             for resource in package['resources']:
                 if resource.get('format'):
                     resources_formats.add(resource.get('format'))
-            package['resources_formats'] = ', '.join(list(resources_formats))
+            package['resources_formats'] = list(resources_formats)
 
         for package_id in packages_by_id.keys():
             package_patch_action(context, packages_by_id[package_id])

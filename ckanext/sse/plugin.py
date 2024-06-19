@@ -1,9 +1,11 @@
 import json
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
+import logging
 from ckanext.sse import action
 from ckanext.sse.validators import (
     coverage_json_object,
+    convert_string_to_array,
     resource_type_validator,
     schema_json_object,
     schema_output_string_json,
@@ -12,6 +14,8 @@ from ckanext.sse.validators import (
     ib1_dataset_assurance_validator,
 )
 
+log = logging.getLogger(__name__)
+
 
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
@@ -19,6 +23,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IValidators)
     plugins.implements(plugins.IActions)
     plugins.implements(plugins.IPackageController, inherit=True)
+    plugins.implements(plugins.IResourceController, inherit=True)
 
     # IConfigurer
     def update_config(self, config_):
@@ -77,6 +82,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "ib1_trust_framework_validator": ib1_trust_framework_validator,
             "ib1_sensitivity_class_validator": ib1_sensitivity_class_validator,
             "ib1_dataset_assurance_validator": ib1_dataset_assurance_validator,
+            "convert_string_to_array": convert_string_to_array,
         }
 
     # IActions
@@ -86,3 +92,41 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_update": action.package_update,
             "search_package_list": action.search_package_list,
         }
+
+    # IResourceController
+    def after_resource_create(self, context, resource):
+        self._sync_dataset_resources_formats_field(resource, context)
+
+    def after_resource_update(self, context, resource):
+        self._sync_dataset_resources_formats_field(resource, context)
+
+    def after_resource_delete(self, context, resource):
+        self._sync_dataset_resources_formats_field(resource, context)
+
+    def _sync_dataset_resources_formats_field(self, resources, context):
+        package_patch_action = toolkit.get_action('package_patch')
+        package_show_action = toolkit.get_action('package_show')
+        packages_by_id = {}
+
+        if type(resources) is not list:
+            resources = [resources]
+
+        for resource in resources:
+            package_id = resource.get('package_id')
+
+            if packages_by_id.get(package_id):
+                continue
+
+            packages_by_id[package_id] = package_show_action(
+                context, dict({'id': package_id}))
+
+            package = packages_by_id[package_id]
+            resources_formats = set()
+
+            for resource in package['resources']:
+                if resource.get('format'):
+                    resources_formats.add(resource.get('format'))
+            package['resources_formats'] = list(resources_formats)
+
+        for package_id in packages_by_id.keys():
+            package_patch_action(context, packages_by_id[package_id])

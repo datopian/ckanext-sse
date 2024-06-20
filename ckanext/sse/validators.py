@@ -6,20 +6,23 @@ import jsonschema
 Invalid = tk.Invalid
 _ = tk._
 
-def scheming_validator(fn):
+import logging
+
+log = logging.getLogger(__name__)
+
+def register_validator(fn):
     """
-    Decorate a validator that needs to have the scheming fields
-    passed with this function. When generating navl validator lists
-    the function decorated will be called passing the field
-    and complete schema to produce the actual validator for each field.
+    collect validator functions into ckanext.scheming.all_helpers dict
     """
-    fn.is_a_scheming_validator = True
+    all_validators[fn.__name__] = fn
     return fn
 
-@scheming_validator
+all_validators = {}
+
+@register_validator
 def convert_string_to_array(value):
     try:
-        return value.split(',')
+        return value.replace('{', '').replace('}', '').split(',')
     except:
         return value
 

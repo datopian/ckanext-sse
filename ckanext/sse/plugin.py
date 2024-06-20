@@ -11,6 +11,7 @@ from ckanext.sse.validators import (
     schema_output_string_json,
     ib1_trust_framework_validator,
     ib1_sensitivity_class_validator,
+    all_validators,
     ib1_dataset_assurance_validator,
 )
 
@@ -74,7 +75,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IValidators
     def get_validators(self):
-        return {
+        validators = {
             "coverage_json_object": coverage_json_object,
             "schema_json_object": schema_json_object,
             "resource_type_validator": resource_type_validator,
@@ -82,8 +83,12 @@ class SsePlugin(plugins.SingletonPlugin):
             "ib1_trust_framework_validator": ib1_trust_framework_validator,
             "ib1_sensitivity_class_validator": ib1_sensitivity_class_validator,
             "ib1_dataset_assurance_validator": ib1_dataset_assurance_validator,
-            "convert_string_to_array": convert_string_to_array,
         }
+
+        for key in all_validators.keys():
+            validators[key] = all_validators[key]
+
+        return validators
 
     # IActions
     def get_actions(self):
@@ -121,12 +126,18 @@ class SsePlugin(plugins.SingletonPlugin):
                 context, dict({'id': package_id}))
 
             package = packages_by_id[package_id]
-            resources_formats = set()
+            resources_formats_set = set()
 
             for resource in package['resources']:
                 if resource.get('format'):
-                    resources_formats.add(resource.get('format'))
-            package['resources_formats'] = list(resources_formats)
+                    resources_formats_set.add(resource.get('format'))
+
+            resources_formats_list = []
+
+            for format in resources_formats_set:
+                resources_formats_list.append(format)
+
+            package['resources_formats'] = resources_formats_list
 
         for package_id in packages_by_id.keys():
             package_patch_action(context, packages_by_id[package_id])

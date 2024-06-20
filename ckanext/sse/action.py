@@ -1,6 +1,9 @@
 import json
 from sqlalchemy import or_
 from ckan.plugins import toolkit as tk
+import logging
+
+log = logging.getLogger(__name__)
 
 
 def _convert_dct_to_stringify_json(data_dict):
@@ -20,14 +23,20 @@ def _convert_dct_to_stringify_json(data_dict):
 
 @tk.chained_action
 def package_create(up_func, context, data_dict):
+    resources_formats = data_dict.get(
+        'resources_formats', generate_resource_formats_array(context, data_dict))
     data_dict = _convert_dct_to_stringify_json(data_dict)
+    data_dict['resources_formats'] = resources_formats
     result = up_func(context, data_dict)
     return result
 
 
 @tk.chained_action
 def package_update(up_func, context, data_dict):
+    resources_formats = data_dict.get(
+        'resources_formats', generate_resource_formats_array(context, data_dict))
     data_dict = _convert_dct_to_stringify_json(data_dict)
+    data_dict['resources_formats'] = resources_formats
     result = up_func(context, data_dict)
     return result
 
@@ -63,3 +72,18 @@ def search_package_list(context, data_dict):
     )
 
     return [name for name, title in query.all()]
+
+
+def generate_resource_formats_array(context, package):
+    import ckan.plugins.toolkit as toolkit
+    resources_formats_set = set()
+    for resource in package.get('resources', toolkit.get_action('package_show')(context, package).get('resources', [])):
+        if resource.get('format'):
+            resources_formats_set.add(resource.get('format'))
+
+    resources_formats_list = []
+
+    for format in resources_formats_set:
+        resources_formats_list.append(format)
+
+    return resources_formats_list

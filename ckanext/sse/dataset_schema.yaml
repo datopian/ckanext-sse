@@ -73,8 +73,8 @@ dataset_fields:
 - field_name: resources_formats
   label: Resources formats
   form_placeholder: eg. PDF, DOCX, CSV
-  form_snippet: text.html
   output_validators: convert_string_to_array
+  validators: convert_string_to_array
   form_attrs:
     disabled: disabled
     style: "cursor: not-allowed"

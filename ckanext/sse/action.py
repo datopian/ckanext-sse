@@ -75,6 +75,8 @@ def search_package_list(context, data_dict):
 
 
 def generate_resource_formats_array(context, package):
+    if(not package.get('id') and not package.get('resources')):
+        return []
     import ckan.plugins.toolkit as toolkit
     resources_formats_set = set()
     for resource in package.get('resources', toolkit.get_action('package_show')(context, package).get('resources', [])):

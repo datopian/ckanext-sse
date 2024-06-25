@@ -23,8 +23,7 @@ def _convert_dct_to_stringify_json(data_dict):
 
 @tk.chained_action
 def package_create(up_func, context, data_dict):
-    resources_formats = data_dict.get(
-        'resources_formats', generate_resource_formats_array(context, data_dict))
+    resources_formats = generate_resource_formats_array(context, data_dict)
     data_dict = _convert_dct_to_stringify_json(data_dict)
     data_dict['resources_formats'] = resources_formats
     result = up_func(context, data_dict)
@@ -33,8 +32,7 @@ def package_create(up_func, context, data_dict):
 
 @tk.chained_action
 def package_update(up_func, context, data_dict):
-    resources_formats = data_dict.get(
-        'resources_formats', generate_resource_formats_array(context, data_dict))
+    resources_formats = generate_resource_formats_array(context, data_dict)
     data_dict = _convert_dct_to_stringify_json(data_dict)
     data_dict['resources_formats'] = resources_formats
     result = up_func(context, data_dict)

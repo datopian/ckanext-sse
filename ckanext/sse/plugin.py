@@ -5,7 +5,6 @@ import logging
 from ckanext.sse import action
 from ckanext.sse.validators import (
     coverage_json_object,
-    convert_string_to_array,
     resource_type_validator,
     schema_json_object,
     schema_output_string_json,

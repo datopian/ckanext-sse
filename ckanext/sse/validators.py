@@ -10,22 +10,6 @@ import logging
 
 log = logging.getLogger(__name__)
 
-def register_validator(fn):
-    """
-    collect validator functions into ckanext.scheming.all_helpers dict
-    """
-    all_validators[fn.__name__] = fn
-    return fn
-
-all_validators = {}
-
-@register_validator
-def convert_string_to_array(value):
-    try:
-        return value.replace('{', '').replace('}', '').split(',')
-    except:
-        return value
-
 
 def coverage_json_object(value, context):
     """

@@ -10,7 +10,6 @@ from ckanext.sse.validators import (
     schema_output_string_json,
     ib1_trust_framework_validator,
     ib1_sensitivity_class_validator,
-    all_validators,
     ib1_dataset_assurance_validator,
 )
 
@@ -19,7 +18,6 @@ log = logging.getLogger(__name__)
 
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
-    plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IValidators)
     plugins.implements(plugins.IActions)
     plugins.implements(plugins.IPackageController, inherit=True)
@@ -69,11 +67,13 @@ class SsePlugin(plugins.SingletonPlugin):
     def before_dataset_index(self, data_dict):
         if data_dict.get("coverage", False):
             data_dict["coverage"] = json.dumps(data_dict["coverage"])
+        if data_dict.get("resource_formats"):
+            data_dict["resource_formats"] = json.dumps(data_dict["resource_formats"])
         return data_dict
 
     # IValidators
     def get_validators(self):
-        validators = {
+        return {
             "coverage_json_object": coverage_json_object,
             "schema_json_object": schema_json_object,
             "resource_type_validator": resource_type_validator,
@@ -83,15 +83,11 @@ class SsePlugin(plugins.SingletonPlugin):
             "ib1_dataset_assurance_validator": ib1_dataset_assurance_validator,
         }
 
-        for key in all_validators.keys():
-            validators[key] = all_validators[key]
-
-        return validators
-
     # IActions
     def get_actions(self):
         return {
             "package_create": action.package_create,
             "package_update": action.package_update,
+            "package_show": action.package_show,
             "search_package_list": action.search_package_list,
         }

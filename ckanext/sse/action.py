@@ -23,19 +23,28 @@ def _convert_dct_to_stringify_json(data_dict):
 
 @tk.chained_action
 def package_create(up_func, context, data_dict):
-    resources_formats = generate_resource_formats_array(context, data_dict)
     data_dict = _convert_dct_to_stringify_json(data_dict)
-    data_dict['resources_formats'] = resources_formats
     result = up_func(context, data_dict)
     return result
 
 
 @tk.chained_action
 def package_update(up_func, context, data_dict):
-    resources_formats = generate_resource_formats_array(context, data_dict)
     data_dict = _convert_dct_to_stringify_json(data_dict)
-    data_dict['resources_formats'] = resources_formats
     result = up_func(context, data_dict)
+    return result
+
+
+@tk.side_effect_free
+@tk.chained_action
+def package_show(up_func, context, data_dict):
+    result = up_func(context, data_dict)
+    formats = set()
+    for resource in result["resources"]:
+        if resource.get("format"):
+            print(resource.get("format"))
+            formats.add(resource.get("format"))
+    result["resource_formats"] = list(formats)
     return result
 
 
@@ -70,19 +79,3 @@ def search_package_list(context, data_dict):
     )
 
     return [name for name, title in query.all()]
-
-
-def generate_resource_formats_array(context, package):
-    if(not package.get('id') and not package.get('resources')):
-        return []
-    resources_formats_set = set()
-    for resource in package.get('resources', tk.get_action('package_show')(context, package).get('resources', [])):
-        if resource.get('format'):
-            resources_formats_set.add(resource.get('format'))
-
-    resources_formats_list = []
-
-    for format in resources_formats_set:
-        resources_formats_list.append(format)
-
-    return resources_formats_list

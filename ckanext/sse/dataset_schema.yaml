@@ -70,14 +70,10 @@ dataset_fields:
   form_placeholder: Joe Bloggs
   display_property: dc:maintainer
 
-- field_name: resources_formats
-  label: Resources formats
-  form_placeholder: eg. PDF, DOCX, CSV
-  form_snippet: text.html
-  output_validators: convert_string_to_array
-  form_attrs:
-    disabled: disabled
-    style: "cursor: not-allowed"
+- field_name: resource_formats
+  label: resource_formats
+  form_snippet: null
+  validators: ignore_missing
 
 - field_name: maintainer_email
   label: Maintainer Email

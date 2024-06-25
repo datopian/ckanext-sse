@@ -1,6 +1,9 @@
 import json
 from sqlalchemy import or_
 from ckan.plugins import toolkit as tk
+import logging
+
+log = logging.getLogger(__name__)
 
 
 def _convert_dct_to_stringify_json(data_dict):
@@ -29,6 +32,19 @@ def package_create(up_func, context, data_dict):
 def package_update(up_func, context, data_dict):
     data_dict = _convert_dct_to_stringify_json(data_dict)
     result = up_func(context, data_dict)
+    return result
+
+
+@tk.side_effect_free
+@tk.chained_action
+def package_show(up_func, context, data_dict):
+    result = up_func(context, data_dict)
+    formats = set()
+    for resource in result["resources"]:
+        if resource.get("format"):
+            print(resource.get("format"))
+            formats.add(resource.get("format"))
+    result["resource_formats"] = list(formats)
     return result
 
 

@@ -73,7 +73,6 @@ dataset_fields:
 - field_name: resource_formats
   label: resource_formats
   form_snippet: null
-  display_snippet: null
   validators: ignore_missing
 
 - field_name: maintainer_email

@@ -71,7 +71,7 @@ dataset_fields:
   display_property: dc:maintainer
 
 - field_name: resource_formats
-  label: resource_formats
+  label: Resources Formats
   form_snippet: null
   validators: ignore_missing
 

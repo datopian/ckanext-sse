@@ -38,9 +38,8 @@ class DCTProfile(EuropeanDCATAP2Profile):
             str(dataset_ref) if isinstance(dataset_ref, rdflib.term.URIRef) else ""
         )
 
-        if "format" in dataset_dict:
-            g.add((dataset_ref, DCT['format'], Literal(
-                json.dumps(dataset_dict['format']))))
+        for format in dataset_dict.get("format", []):
+            g.add((dataset_ref, DCT["format"], Literal(format)))
 
         # Binding the namespace
         g.bind("ib1", ib1)

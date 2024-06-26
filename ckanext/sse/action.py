@@ -43,7 +43,7 @@ def package_show(up_func, context, data_dict):
     for resource in result["resources"]:
         if resource.get("format"):
             formats.add(resource.get("format"))
-    result["resource_formats"] = list(formats)
+    result["format"] = list(formats)
     return result
 
 

@@ -67,8 +67,8 @@ class SsePlugin(plugins.SingletonPlugin):
     def before_dataset_index(self, data_dict):
         if data_dict.get("coverage", False):
             data_dict["coverage"] = json.dumps(data_dict["coverage"])
-        if data_dict.get("resource_formats"):
-            data_dict["resource_formats"] = json.dumps(data_dict["resource_formats"])
+        if data_dict.get("format"):
+            data_dict["format"] = json.dumps(data_dict["format"])
         return data_dict
 
     # IValidators

@@ -70,7 +70,7 @@ dataset_fields:
   form_placeholder: Joe Bloggs
   display_property: dc:maintainer
 
-- field_name: resource_formats
+- field_name: format
   label: Resources Formats
   form_snippet: null
   validators: ignore_missing

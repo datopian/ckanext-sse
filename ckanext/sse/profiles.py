@@ -21,6 +21,13 @@ class DCTProfile(EuropeanDCATAP2Profile):
         # call super method
         super(DCTProfile, self).parse_dataset(dataset_dict, dataset_ref)
 
+        resources_formats = set()
+        for resource_dict in dataset_dict.get("resources", []):
+            if resource_dict.get('format'):
+                resources_formats.add(resource_dict.get('format'))
+
+        dataset_dict['format'] = list(resources_formats)
+
         return dataset_dict
 
     def graph_from_dataset(self, dataset_dict, dataset_ref):
@@ -30,6 +37,11 @@ class DCTProfile(EuropeanDCATAP2Profile):
         dataset_uri = (
             str(dataset_ref) if isinstance(dataset_ref, rdflib.term.URIRef) else ""
         )
+
+        if "format" in dataset_dict:
+            g.add((dataset_ref, DCT['format'], Literal(
+                json.dumps(dataset_dict['format']))))
+
         # Binding the namespace
         g.bind("ib1", ib1)
 

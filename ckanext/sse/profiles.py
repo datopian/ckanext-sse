@@ -23,7 +23,7 @@ class DCTProfile(EuropeanDCATAP2Profile):
 
         resources_formats = set()
         for resource_dict in dataset_dict.get("resources", []):
-            if resource_dict.get('format'):
+            if resource_dict.get('format') and resource_dict.get('resource_type') != 'documentation':
                 resources_formats.add(resource_dict.get('format'))
 
         dataset_dict['format'] = list(resources_formats)

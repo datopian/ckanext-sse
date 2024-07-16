@@ -41,7 +41,7 @@ def package_show(up_func, context, data_dict):
     result = up_func(context, data_dict)
     formats = set()
     for resource in result["resources"]:
-        if resource.get("format"):
+        if resource.get("format") and resource.get('resource_type') != 'documentation':
             formats.add(resource.get("format"))
     result["format"] = list(formats)
     return result

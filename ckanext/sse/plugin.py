@@ -30,6 +30,9 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IPackageController
     def create(self, entity):
+        if(entity.type == 'showcase'):
+            return entity
+
         if entity.owner_org:
             org_name = toolkit.get_action("organization_show")(
                 {"ignore_auth": True}, {"id": entity.owner_org}
@@ -47,6 +50,9 @@ class SsePlugin(plugins.SingletonPlugin):
         return entity
 
     def edit(self, entity):
+        if(entity.type == 'showcase'):
+            return entity
+
         if entity.owner_org:
             org_name = toolkit.get_action("organization_show")(
                 {"ignore_auth": True}, {"id": entity.owner_org}

@@ -1,3 +1,4 @@
+import logging
 import json
 import six
 import ckan.plugins.toolkit as tk
@@ -6,7 +7,6 @@ import jsonschema
 Invalid = tk.Invalid
 _ = tk._
 
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -53,11 +53,9 @@ def coverage_json_object(value, context):
             raise Invalid(
                 _("Invalid JSON object. Please provide JSON in the correct format.")
             )
-    except Exception as e:
+    except Exception:
         raise Invalid(
-            _(
-                f"Invalid JSON object. Please provide JSON in the correct format. {e.message}"
-            )
+            _("Invalid JSON object. Please provide JSON in the correct format.")
         )
 
     return value

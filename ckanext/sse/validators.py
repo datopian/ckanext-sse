@@ -53,7 +53,7 @@ def coverage_json_object(value, context):
             raise Invalid(
                 _("Invalid JSON object. Please provide JSON in the correct format.")
             )
-    except jsonschema.exceptions.ValidationError as e:
+    except Exception as e:
         raise Invalid(
             _(
                 f"Invalid JSON object. Please provide JSON in the correct format. {e.message}"

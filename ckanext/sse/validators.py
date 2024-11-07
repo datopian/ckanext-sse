@@ -44,14 +44,20 @@ def coverage_json_object(value, context):
                     f"Invalid JSON object. Please provide JSON in the correct format. {e.message}"
                 )
             )
-
-    if isinstance(value, six.string_types):
-        _coverage_validator(json.loads(value))
-    elif isinstance(value, dict):
-        _coverage_validator(value)
-    else:
+    try:
+        if isinstance(value, six.string_types):
+            _coverage_validator(json.loads(value))
+        elif isinstance(value, dict):
+            _coverage_validator(value)
+        else:
+            raise Invalid(
+                _("Invalid JSON object. Please provide JSON in the correct format.")
+            )
+    except jsonschema.exceptions.ValidationError as e:
         raise Invalid(
-            _("Invalid JSON object. Please provide JSON in the correct format.")
+            _(
+                f"Invalid JSON object. Please provide JSON in the correct format. {e.message}"
+            )
         )
 
     return value

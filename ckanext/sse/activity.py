@@ -7,7 +7,6 @@ from ckan.common import _
 from ckanext.activity.logic import schema
 from ckanext.activity.model import activity as core_model_activity
 from datetime import timedelta
-from ckan.lib.plugins import get_permission_labels
 
 
 import datetime
@@ -67,8 +66,7 @@ def dashboard_activity_list_for_all_users(
             limit=limit,
             offset=offset,
             before=before,
-            after=after,
-            user_permission_labels=_get_user_permission_labels(context)
+            after=after
         )
 
         activity_dicts = core_model_activity.activity_list_dictize(
@@ -103,11 +101,3 @@ def dashboard_activity_list_for_all_users(
         flat_list += row
 
     return flat_list
-
-
-def _get_user_permission_labels(context):
-    if not is_sysadmin(context.get('user')):
-        return get_permission_labels().get_user_dataset_labels(
-            context['auth_user_obj'])
-    else:
-        return None

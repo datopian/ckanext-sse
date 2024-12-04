@@ -88,12 +88,14 @@ def dashboard_activity_list_for_all_users(
                 activity["is_new"] = (
                     strptime(activity["timestamp"], fmt) > last_viewed
                 )
-
-        lists.append([{'username': user.get('fullname') or user.get('name') or user.get('id'),
-                     'activities': [
+        filtered_activities = [
             element for element in activity_dicts
             if datetime.datetime.strptime(element["timestamp"], "%Y-%m-%dT%H:%M:%S.%f").date() == yesterday == yesterday
-        ]}])
+        ]
+
+        if len(filtered_activities) > 0:
+            lists.append([{'username': user.get('fullname') or user.get(
+                'name') or user.get('id'), 'activities': filtered_activities}])
 
     flat_list = list()
 

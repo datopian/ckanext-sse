@@ -90,7 +90,7 @@ def dashboard_activity_list_for_all_users(
                 )
         filtered_activities = [
             element for element in activity_dicts
-            if datetime.datetime.strptime(element["timestamp"], "%Y-%m-%dT%H:%M:%S.%f").date() == yesterday == yesterday
+            if datetime.datetime.strptime(element["timestamp"], "%Y-%m-%dT%H:%M:%S.%f").date() == yesterday
         ]
 
         if len(filtered_activities) > 0:

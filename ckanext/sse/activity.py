@@ -48,7 +48,7 @@ def dashboard_activity_list_for_all_users(
             'error_summary': {_('auth'): _('User not authorized')},
         }
 
-    lists = list()
+    user_activities = list()
     today = datetime.date.today()
     yesterday = today - timedelta(days=1)
     user_list = tk.get_action('user_list')({"ignore_auth": True})
@@ -94,12 +94,7 @@ def dashboard_activity_list_for_all_users(
         ]
 
         if len(filtered_activities) > 0:
-            lists.append([{'username': user.get('fullname') or user.get(
-                'name') or user.get('id'), 'activities': filtered_activities}])
+            user_activities.append({'username': user.get('fullname') or user.get(
+                'name') or user.get('id'), 'activities': filtered_activities})
 
-    flat_list = list()
-
-    for row in lists:
-        flat_list += row
-
-    return flat_list
+    return user_activities

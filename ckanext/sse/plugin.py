@@ -3,6 +3,7 @@ import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action
+import ckanext.sse.activity as activity
 from ckanext.sse.validators import (
     coverage_json_object,
     resource_type_validator,
@@ -30,7 +31,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IPackageController
     def create(self, entity):
-        if(entity.type == 'showcase'):
+        if (entity.type == 'showcase'):
             return entity
 
         if entity.owner_org:
@@ -50,7 +51,7 @@ class SsePlugin(plugins.SingletonPlugin):
         return entity
 
     def edit(self, entity):
-        if(entity.type == 'showcase'):
+        if (entity.type == 'showcase'):
             return entity
 
         if entity.owner_org:
@@ -95,5 +96,6 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_create": action.package_create,
             "package_update": action.package_update,
             "package_show": action.package_show,
+            "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
         }

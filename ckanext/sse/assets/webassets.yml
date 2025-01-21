@@ -1,11 +1,11 @@
-# sse-js:
-#   filter: rjsmin
-#   output: ckanext-sse/%(version)s-sse.js
-#   contents:
-#     - js/sse.js
-#   extra:
-#     preload:
-#       - base/main
+sse-js:
+  filter: rjsmin
+  output: ckanext-sse/%(version)s-sse.js
+  contents:
+    - dataset-modal.js
+  extra:
+    preload:
+      - base/main
 
 # sse-css:
 #   filter: cssrewrite

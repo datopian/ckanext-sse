@@ -16,7 +16,6 @@ from ckanext.sse.validators import (
 
 log = logging.getLogger(__name__)
 
-
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IValidators)

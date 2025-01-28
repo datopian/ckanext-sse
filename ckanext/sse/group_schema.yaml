@@ -20,4 +20,5 @@ fields:
     form_snippet: markdown.html
 
   - field_name: image_url
-    label: "Image URL"
+    preset: resource_url_upload
+    upload_label: Image

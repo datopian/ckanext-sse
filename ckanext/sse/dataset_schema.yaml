@@ -102,6 +102,43 @@ dataset_fields:
     - value: IT
       label: IT
 
+# NOTE: options must exist in 
+# http://publications.europa.eu/resource/authority/frequency
+- field_name: frequency
+  required: true
+  label: Update frequency
+  preset: select
+  choices:
+  - value: as_needed
+    label: As Needed
+  - value: not_planned
+    label: Not Planned
+  - value: annually
+    label: Annually
+    expiration: {"days": 365}
+  - value: biannually
+    label: Biannually
+    expiration: {"days": 365 / 2}
+  - value: quarterly
+    label: Quarterly
+    expiration: {"days": 365 / 4}
+  - value: monthly
+    label: Monthly
+    expiration: {"days": 30}
+  - value: weekly
+    label: Weekly
+    expiration: {"days": 7}
+  - value: daily
+    label: Daily
+    expiration: {"days": 1}
+  - value: hourly
+    label: Hourly
+    expiration: {"hours": 1}
+
+- field_name: last_data_update
+  label: Last Data Update
+  form_snippet: null
+
 - field_name: coverage
   label: Coverage
   preset: json_object
@@ -195,3 +232,8 @@ resource_fields:
   preset: json_object
   validators: ignore_missing schema_json_object
   output_validators: schema_output_string_json
+
+- field_name: last_datastore_modified
+  label: Datastore last updated
+  form_snippet: null
+  

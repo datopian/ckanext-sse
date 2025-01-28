@@ -13,6 +13,7 @@ from ckanext.sse.validators import (
     ib1_sensitivity_class_validator,
     ib1_dataset_assurance_validator,
 )
+import ckanext.sse.signals as signals
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IValidators)
     plugins.implements(plugins.IActions)
     plugins.implements(plugins.IPackageController, inherit=True)
+    plugins.implements(plugins.ISignal, inherit=True)
 
     # IConfigurer
     def update_config(self, config_):
@@ -95,6 +97,11 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_create": action.package_create,
             "package_update": action.package_update,
             "package_show": action.package_show,
+            "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
         }
+
+    # ISignal
+    def get_signal_subscriptions(self):
+        return signals.get_subscriptions()

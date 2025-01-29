@@ -37,7 +37,15 @@ def package_update(up_func, context, data_dict):
     return result
 
 
-def _transform_package_show(package_dict):
+def _get_dataset_schema_frequency_options():
+    schema = scheming_get_dataset_schema("dataset")
+    schema_dataset_fields = schema.get("dataset_fields")
+    frequency_field = scheming_field_by_name(schema_dataset_fields, "frequency")
+    frequencies = scheming_field_choices(frequency_field)
+    return frequencies
+
+
+def _transform_package_show(package_dict, frequencies):
     resources = package_dict.get("resources", [])
     regular_resources = list(filter(lambda x: x.get("resource_type") == "regular", resources))
     frequency = package_dict.get("frequency", None)
@@ -57,11 +65,6 @@ def _transform_package_show(package_dict):
         max_last_modified = max(dates)
 
     package_dict['last_data_update'] = max_last_modified
-
-    schema = scheming_get_dataset_schema("dataset")
-    schema_dataset_fields = schema.get("dataset_fields")
-    frequency_field = scheming_field_by_name(schema_dataset_fields, "frequency")
-    frequencies = scheming_field_choices(frequency_field)
 
     expiration = None
     for f in frequencies:
@@ -89,7 +92,8 @@ def package_show(up_func, context, data_dict):
             formats.add(resource.get("format"))
     result["format"] = list(formats)
 
-    _transform_package_show(result)
+    frequencies = _get_dataset_schema_frequency_options()
+    _transform_package_show(result, frequencies)
 
     
     return result
@@ -133,7 +137,8 @@ def search_package_list(context, data_dict):
 def package_search(up_func, context, data_dict):
     result = up_func(context, data_dict)
     datasets = result.get("results", [])
+    frequencies = _get_dataset_schema_frequency_options()
     for d in datasets:
-        _transform_package_show(d)
+        _transform_package_show(d, frequencies)
     return result
 

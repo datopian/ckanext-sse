@@ -27,7 +27,6 @@ def on_datastore_updated(sender, **kwargs):
     assert resource
     flag = datetime.datetime.utcnow().isoformat()
 
-    # update extras json with a single statement
     model.Session.query(model.Resource).filter(
         model.Resource.id == data_dict['resource_id']
     ).update(
@@ -46,8 +45,6 @@ def on_datastore_updated(sender, **kwargs):
     model.Session.commit()
     model.Session.expire(resource, ['extras'])
 
-    # copied from ckan.lib.search.rebuild
-    # using validated packages can cause solr errors.
     context = {
         'model': model,
         'ignore_auth': True,
@@ -55,15 +52,13 @@ def on_datastore_updated(sender, **kwargs):
         'use_cache': False
     }
 
-    # get package with  updated resource from package_show
-    # find changed resource, patch it and reindex package
     psi = search.PackageSearchIndex()
     _data_dict = tk.get_action('package_show')(context, {
         'id': resource.package_id
     })
     for resource in _data_dict['resources']:
         if resource['id'] == data_dict['resource_id']:
-            resource['datastore_active'] = flag
+            resource['last_datastore_modified'] = flag
             psi.index_package(_data_dict)
             break
 

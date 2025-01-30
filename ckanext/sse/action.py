@@ -4,6 +4,7 @@ from sqlalchemy import or_
 from ckan.plugins import toolkit as tk
 from ckan.lib.helpers import helper_functions as helpers
 from ckanext.scheming.helpers import scheming_field_choices, scheming_get_dataset_schema, scheming_field_by_name
+import ckan.model as model
 import logging
 
 log = logging.getLogger(__name__)
@@ -82,40 +83,37 @@ def _transform_package_show(package_dict, frequencies):
 
     package_dict["is_up_to_date"] = is_up_to_date
 
+def _fix_package_show_groups(data_dict):
+    datasets = []
+    if type(data_dict) != list:
+        datasets = [data_dict]
+    
+    group_ids = list(set([g.get("id") for dataset in datasets for g in dataset.get("groups")]))
+    groups_q = model.Session.query(model.Group).filter(model.Group.id.in_(group_ids))
+    groups = groups_q.all()
+    groups_lu_table = {g.id: g for g in groups}
+    
+    for dataset in datasets:
+        dataset_groups = dataset.get("groups", [])
+        dataset_segregated_groups = {"groups": []}
+        for group in dataset_groups:
+            id = group.get("id")
+            db_group = groups_lu_table.get(id)
+            group_type = db_group.type + "s"
+            if not group_type in dataset_segregated_groups:
+                dataset_segregated_groups[group_type] = []
+            dataset_segregated_groups[group_type].append(group)
+        dataset.update(dataset_segregated_groups)
+
 
 @tk.side_effect_free
 @tk.chained_action
 def package_show(up_func, context, data_dict):
     result = up_func(context, data_dict)
-    default_group_type = helpers.default_group_type('group')
-    group_types = [default_group_type] + tk.get_action('scheming_group_schema_list')(
-        context, {u'id': context['user']})
-    group_list_action = tk.get_action(u'group_list')
-    groups = []
-    for group_type in group_types:
-        groups += group_list_action(
-            context, {'type': group_type, 'all_fields': True})
-    groups_ids_by_type = dict()
-    for group in groups:
-        groups_ids = groups_ids_by_type.get(group.get('type'), set())
-        groups_ids.add(group.get('id'))
-        groups_ids_by_type[group.get('type')] = groups_ids
-
-    if data_dict.get('group_type'):
-        result['groups'] = [group for group in result.get('groups') if group.get(
-            'id') in groups_ids_by_type.get(data_dict.get('group_type'))]
-    else:
-        result['groups'] = [group for group in result.get('groups') if group.get(
-            'id') in groups_ids_by_type.get(default_group_type)]
-
-    formats = set()
-    for resource in result["resources"]:
-        if resource.get("format") and resource.get('resource_type') != 'documentation':
-            formats.add(resource.get("format"))
-    result["format"] = list(formats)
 
     frequencies = _get_dataset_schema_frequency_options()
     _transform_package_show(result, frequencies)
+    _fix_package_show_groups(result)
 
     
     return result
@@ -163,4 +161,3 @@ def package_search(up_func, context, data_dict):
     for d in datasets:
         _transform_package_show(d, frequencies)
     return result
-

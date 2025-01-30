@@ -1,6 +1,7 @@
 import json
 from sqlalchemy import or_
 from ckan.plugins import toolkit as tk
+from ckan.lib.helpers import helper_functions as helpers
 import logging
 
 log = logging.getLogger(__name__)
@@ -39,6 +40,27 @@ def package_update(up_func, context, data_dict):
 @tk.chained_action
 def package_show(up_func, context, data_dict):
     result = up_func(context, data_dict)
+    default_group_type = helpers.default_group_type('group')
+    group_types = [default_group_type] + tk.get_action('scheming_group_schema_list')(
+        context, {u'id': context['user']})
+    group_list_action = tk.get_action(u'group_list')
+    groups = []
+    for group_type in group_types:
+        groups += group_list_action(
+            context, {'type': group_type, 'all_fields': True})
+    groups_ids_by_type = dict()
+    for group in groups:
+        groups_ids = groups_ids_by_type.get(group.get('type'), set())
+        groups_ids.add(group.get('id'))
+        groups_ids_by_type[group.get('type')] = groups_ids
+
+    if data_dict.get('group_type'):
+        result['groups'] = [group for group in result.get('groups') if group.get(
+            'id') in groups_ids_by_type.get(data_dict.get('group_type'))]
+    else:
+        result['groups'] = [group for group in result.get('groups') if group.get(
+            'id') in groups_ids_by_type.get(default_group_type)]
+
     formats = set()
     for resource in result["resources"]:
         if resource.get("format") and resource.get('resource_type') != 'documentation':

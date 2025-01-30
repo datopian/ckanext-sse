@@ -83,28 +83,6 @@ def _transform_package_show(package_dict, frequencies):
 
     package_dict["is_up_to_date"] = is_up_to_date
 
-def _fix_package_show_groups(data_dict):
-    datasets = []
-    if type(data_dict) != list:
-        datasets = [data_dict]
-    
-    group_ids = list(set([g.get("id") for dataset in datasets for g in dataset.get("groups")]))
-    groups_q = model.Session.query(model.Group).filter(model.Group.id.in_(group_ids))
-    groups = groups_q.all()
-    groups_lu_table = {g.id: g for g in groups}
-    
-    for dataset in datasets:
-        dataset_groups = dataset.get("groups", [])
-        dataset_segregated_groups = {"groups": []}
-        for group in dataset_groups:
-            id = group.get("id")
-            db_group = groups_lu_table.get(id)
-            group_type = db_group.type + "s"
-            if not group_type in dataset_segregated_groups:
-                dataset_segregated_groups[group_type] = []
-            dataset_segregated_groups[group_type].append(group)
-        dataset.update(dataset_segregated_groups)
-
 
 @tk.side_effect_free
 @tk.chained_action
@@ -113,7 +91,6 @@ def package_show(up_func, context, data_dict):
 
     frequencies = _get_dataset_schema_frequency_options()
     _transform_package_show(result, frequencies)
-    _fix_package_show_groups(result)
 
     
     return result

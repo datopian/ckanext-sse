@@ -1,3 +1,4 @@
+import logging
 from ckan.views.dataset import GroupView as BaseGroupView
 from flask import Blueprint
 from ckan.plugins import toolkit as tk
@@ -5,6 +6,9 @@ import ckan.lib.base as base
 from ckan.common import _, config, g, request
 import ckan.logic as logic
 from ckan.lib.helpers import helper_functions as h
+import ckan.model as model
+
+log = logging.getLogger(__name__)
 
 NotFound = logic.NotFound
 
@@ -22,8 +26,16 @@ def groupViewByTypeFactory(group_type):
 
         def _prepare(self, id):
             context, pkg_dict = super()._prepare(id)
-            group_type_key = group_type + "s"
-            pkg_dict["groups"] = pkg_dict[group_type_key] if group_type_key in pkg_dict else []
+            pkg_group_ids = set(
+                group[u'id'] for group in pkg_dict.get(u'groups', [])
+            )
+            groups_q = model.Session.query(model.Group).filter(
+                    model.Group.type == group_type, 
+                    model.Group.id.in_(pkg_group_ids)
+            )
+            groups = groups_q.all()
+            group_ids = [g.id for g in groups_q.all()]
+            pkg_dict["groups"] = [g for g in pkg_dict["groups"] if g.get("id") in group_ids]
             return context, pkg_dict
 
         def get(self, package_type: str, id: str) -> str:

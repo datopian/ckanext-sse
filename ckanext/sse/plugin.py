@@ -147,9 +147,6 @@ class SsePlugin(plugins.SingletonPlugin):
             data_dict["coverage"] = json.dumps(data_dict["coverage"])
         if data_dict.get("format"):
             data_dict["format"] = json.dumps(data_dict["format"])
-
-        if "user_groups" in data_dict:
-            del data_dict["user_groups"]
         return data_dict
 
     # IValidators

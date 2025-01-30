@@ -17,6 +17,7 @@ from ckanext.sse.validators import (
     ib1_sensitivity_class_validator,
     ib1_dataset_assurance_validator,
 )
+import ckanext.sse.signals as signals
 
 log = logging.getLogger(__name__)
 
@@ -27,8 +28,10 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IBlueprint)
     plugins.implements(plugins.IAuthFunctions)
+    plugins.implements(plugins.ISignal, inherit=True)
     plugins.implements(plugins.IPermissionLabels)
 
+    # IPermissionLabels
     def get_dataset_labels(self, dataset_obj: model.Package) -> list[str]:
         if dataset_obj.state == u'active' and not dataset_obj.private:
             return [u'public']
@@ -49,6 +52,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
         return labels
 
+    # IPermissionLabels
     def get_user_dataset_labels(self, user_obj: model.User) -> list[str]:
         labels = [u'public']
         if not user_obj or user_obj.is_anonymous:
@@ -79,7 +83,8 @@ class SsePlugin(plugins.SingletonPlugin):
                           d['package_id'] for d in datasets)
 
         return labels
-
+    
+    # IAuthFunctions
     def get_auth_functions(self):
         return {
             "package_show": auth.custom_package_show
@@ -116,6 +121,7 @@ class SsePlugin(plugins.SingletonPlugin):
             )
         return entity
 
+    # IPackageController
     def edit(self, entity):
         if (entity.type == 'showcase'):
             return entity
@@ -162,6 +168,11 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_create": action.package_create,
             "package_update": action.package_update,
             "package_show": action.package_show,
+            "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
         }
+
+    # ISignal
+    def get_signal_subscriptions(self):
+        return signals.get_subscriptions()

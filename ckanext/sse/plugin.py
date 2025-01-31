@@ -4,7 +4,7 @@ import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action
 import ckan.authz
-import ckanext.sse.controllers.user_group as user_group
+import ckanext.sse.views.dataset as dataset
 import ckanext.sse.activity as activity
 import ckanext.sse.auth.package as auth
 from ckan import logic, model, plugins
@@ -40,7 +40,7 @@ class SsePlugin(plugins.SingletonPlugin):
             labels = [u'collaborator-%s' % dataset_obj.id]
         else:
             labels = []
-        groups = dataset_obj.get_groups('user group')
+        groups = dataset_obj.get_groups('user_group')
         
         for group in groups:
             labels.append(u'user-group-%s' % group.id)
@@ -65,7 +65,7 @@ class SsePlugin(plugins.SingletonPlugin):
         })
 
         filtered_groups = [
-            group for group in user_groups if group['type'] == 'user group']
+            group for group in user_groups if group['type'] == 'user_group']
 
         labels.append(u'creator-%s' % user_obj.id)
 
@@ -87,12 +87,11 @@ class SsePlugin(plugins.SingletonPlugin):
     # IAuthFunctions
     def get_auth_functions(self):
         return {
-            "package_show": auth.custom_package_show
         }
 
     # IBlueprint
     def get_blueprint(self):
-        return user_group.blueprint
+        return dataset.blueprint
 
     # IConfigurer
     def update_config(self, config_):

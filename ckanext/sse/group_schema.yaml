@@ -1,5 +1,5 @@
 scheming_version: 2
-group_type: "user group"
+group_type: "user_group"
 about_url: 'http://github.com/ckan/ckanext-scheming'
 
 fields:

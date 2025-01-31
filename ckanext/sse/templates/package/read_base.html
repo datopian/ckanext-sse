@@ -1,0 +1,7 @@
+{% ckan_extends %}
+{% block content_primary_nav %}
+    {{ h.build_nav_icon(dataset_type ~ '.read', _('Dataset'),  id=pkg.name, icon='sitemap') }}
+    {{ h.build_nav_icon('ssen_dataset.groups', h.humanize_entity_type('group', default_group_type, 'content tab') or _('Groups'), id=pkg.name, icon='users') }}
+    {{ h.build_nav_icon('ssen_dataset.user_groups', _('User Groups'), id=pkg.name, icon='users') }}
+    {{ h.build_nav_icon('activity.package_activity', _('Activity Stream'), id=pkg.id if is_activity_archive else pkg.name, icon='clock') }}
+{% endblock %}

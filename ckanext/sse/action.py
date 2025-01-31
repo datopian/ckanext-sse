@@ -141,4 +141,3 @@ def package_search(up_func, context, data_dict):
     for d in datasets:
         _transform_package_show(d, frequencies)
     return result
-

@@ -88,6 +88,11 @@ def _transform_package_show(package_dict, frequencies):
 @tk.chained_action
 def package_show(up_func, context, data_dict):
     result = up_func(context, data_dict)
+    formats = set()
+    for resource in result["resources"]:
+        if resource.get("format") and resource.get('resource_type') != 'documentation':
+            formats.add(resource.get("format"))
+    result["format"] = list(formats)
 
     frequencies = _get_dataset_schema_frequency_options()
     _transform_package_show(result, frequencies)

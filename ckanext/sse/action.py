@@ -2,9 +2,7 @@ import json
 import datetime
 from sqlalchemy import or_
 from ckan.plugins import toolkit as tk
-from ckan.lib.helpers import helper_functions as helpers
 from ckanext.scheming.helpers import scheming_field_choices, scheming_get_dataset_schema, scheming_field_by_name
-import ckan.model as model
 import logging
 
 log = logging.getLogger(__name__)

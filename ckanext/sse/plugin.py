@@ -6,7 +6,6 @@ from ckanext.sse import action
 import ckan.authz
 import ckanext.sse.views.dataset as dataset
 import ckanext.sse.activity as activity
-import ckanext.sse.auth.package as auth
 from ckan import logic, model, plugins
 from ckanext.sse.validators import (
     coverage_json_object,
@@ -27,7 +26,6 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IActions)
     plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IBlueprint)
-    plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.ISignal, inherit=True)
     plugins.implements(plugins.IPermissionLabels)
 
@@ -83,11 +81,6 @@ class SsePlugin(plugins.SingletonPlugin):
                           d['package_id'] for d in datasets)
 
         return labels
-    
-    # IAuthFunctions
-    def get_auth_functions(self):
-        return {
-        }
 
     # IBlueprint
     def get_blueprint(self):

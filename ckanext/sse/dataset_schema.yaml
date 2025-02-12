@@ -4,236 +4,249 @@ about: A reimplementation of the default CKAN dataset schema
 about_url: http://github.com/ckan/ckanext-scheming
 
 dataset_fields:
-- field_name: title
-  label: Title
-  preset: title
-  form_placeholder: eg. A descriptive title
+  - field_name: title
+    label: Title
+    preset: title
+    form_placeholder: eg. A descriptive title
 
-- field_name: name
-  label: URL
-  preset: dataset_slug
-  form_placeholder: eg. my-dataset
+  - field_name: name
+    label: URL
+    preset: dataset_slug
+    form_placeholder: eg. my-dataset
 
+  - field_name: notes
+    label: Description
+    form_snippet: markdown.html
+    form_placeholder: eg. Some useful notes about the data
 
-- field_name: notes
-  label: Description
-  form_snippet: markdown.html
-  form_placeholder: eg. Some useful notes about the data
+  - field_name: tag_string
+    label: Tags
+    preset: tag_string_autocomplete
+    form_placeholder: eg. economy, mental health, government
 
-- field_name: tag_string
-  label: Tags
-  preset: tag_string_autocomplete
-  form_placeholder: eg. economy, mental health, government
+  - field_name: license_id
+    label: License
+    form_snippet: license.html
+    help_text: License definitions and additional information can be found at http://opendefinition.org/
 
-- field_name: license_id
-  label: License
-  form_snippet: license.html
-  help_text: License definitions and additional information can be found at http://opendefinition.org/
+  - field_name: owner_org
+    label: Organization
+    preset: dataset_organization
 
-- field_name: owner_org
-  label: Organization
-  preset: dataset_organization
+  - field_name: source
+    label: Source
+    display_property: foaf:homepage
 
-- field_name: source
-  label: Source
-  display_property: foaf:homepage
+  - field_name: relation
+    label: Relation
+    preset: relation_preset
+    display_snippet: relation.html
 
-- field_name: relation
-  label: Relation
-  preset: relation_preset
-  display_snippet: relation.html
+  - field_name: version
+    label: Version
+    validators: ignore_missing unicode_safe package_version_validator
+    form_placeholder: "1.0"
 
-- field_name: version
-  label: Version
-  validators: ignore_missing unicode_safe package_version_validator
-  form_placeholder: "1.0"
+  - field_name: author
+    label: Author
+    form_placeholder: Joe Bloggs
+    display_property: dc:creator
 
-- field_name: author
-  label: Author
-  form_placeholder: Joe Bloggs
-  display_property: dc:creator
+  - field_name: author_email
+    label: Author Email
+    form_placeholder: joe@example.com
+    display_property: dc:creator
+    display_snippet: email.html
+    display_email_name_field: author
 
-- field_name: author_email
-  label: Author Email
-  form_placeholder: joe@example.com
-  display_property: dc:creator
-  display_snippet: email.html
-  display_email_name_field: author
+  - field_name: contributor
+    label: Contributor
+    form_placeholder:
+    display_property: dc:contributor
 
-- field_name: contributor
-  label: Contributor
-  form_placeholder:
-  display_property: dc:contributor
+  - field_name: maintainer
+    label: Maintainer
+    form_placeholder: Joe Bloggs
+    display_property: dc:maintainer
 
-- field_name: maintainer
-  label: Maintainer
-  form_placeholder: Joe Bloggs
-  display_property: dc:maintainer
+  - field_name: format
+    label: Resources Formats
+    form_snippet: null
+    validators: ignore_missing
 
-- field_name: format
-  label: Resources Formats
-  form_snippet: null
-  validators: ignore_missing
+  - field_name: maintainer_email
+    label: Maintainer Email
+    form_placeholder: joe@example.com
+    display_property: dc:maintainer
+    display_snippet: email.html
+    display_email_name_field: maintainer
 
-- field_name: maintainer_email
-  label: Maintainer Email
-  form_placeholder: joe@example.com
-  display_property: dc:maintainer
-  display_snippet: email.html
-  display_email_name_field: maintainer
+  - field_name: date
+    label: Date
+    placeholder: eg. 2023-01-01
+    preset: date
 
-- field_name: date
-  label: Date
-  placeholder: eg. 2023-01-01
-  preset: date
+  - field_name: language
+    label: Language
+    preset: select
+    choices:
+      - value: EN
+        label: EN
+      - value: FR
+        label: FR
+      - value: ES
+        label: ES
+      - value: DE
+        label: DE
+      - value: IT
+        label: IT
 
-- field_name: language
-  label: Language
-  preset: select
-  choices:
-    - value: EN
-      label: EN
-    - value: FR
-      label: FR
-    - value: ES
-      label: ES
-    - value: DE
-      label: DE
-    - value: IT
-      label: IT
+  # NOTE: options must exist in
+  # http://publications.europa.eu/resource/authority/frequency
+  - field_name: frequency
+    required: true
+    label: Update frequency
+    preset: select
+    choices:
+      - value: as_needed
+        label: As Needed
+      - value: not_planned
+        label: Not Planned
+      - value: annually
+        label: Annually
+        expiration: { "days": 365 }
+      - value: biannually
+        label: Biannually
+        expiration: { "days": 365 / 2 }
+      - value: quarterly
+        label: Quarterly
+        expiration: { "days": 365 / 4 }
+      - value: monthly
+        label: Monthly
+        expiration: { "days": 30 }
+      - value: weekly
+        label: Weekly
+        expiration: { "days": 7 }
+      - value: daily
+        label: Daily
+        expiration: { "days": 1 }
+      - value: hourly
+        label: Hourly
+        expiration: { "hours": 1 }
 
-# NOTE: options must exist in 
-# http://publications.europa.eu/resource/authority/frequency
-- field_name: frequency
-  required: true
-  label: Update frequency
-  preset: select
-  choices:
-  - value: as_needed
-    label: As Needed
-  - value: not_planned
-    label: Not Planned
-  - value: annually
-    label: Annually
-    expiration: {"days": 365}
-  - value: biannually
-    label: Biannually
-    expiration: {"days": 365 / 2}
-  - value: quarterly
-    label: Quarterly
-    expiration: {"days": 365 / 4}
-  - value: monthly
-    label: Monthly
-    expiration: {"days": 30}
-  - value: weekly
-    label: Weekly
-    expiration: {"days": 7}
-  - value: daily
-    label: Daily
-    expiration: {"days": 1}
-  - value: hourly
-    label: Hourly
-    expiration: {"hours": 1}
+  - field_name: last_data_update
+    label: Last Data Update
+    form_snippet: null
 
-- field_name: last_data_update
-  label: Last Data Update
-  form_snippet: null
+  - field_name: coverage
+    label: Coverage
+    preset: json_object
+    validators: ignore_missing coverage_json_object
+    help_text: A spatial or temoral coverage of the dataset in json format.
 
-- field_name: coverage
-  label: Coverage
-  preset: json_object
-  validators: ignore_missing coverage_json_object
-  help_text: A spatial or temoral coverage of the dataset in json format.
+  - field_name: conforms_to
+    label: Conforms to
 
-- field_name: conforms_to
-  label: Conforms to
+  - field_name: has_version
+    label: Has Version
 
-- field_name: has_version
-  label: Has Version
+  - field_name: is_version_of
+    label: Is Version Of
 
-- field_name: is_version_of
-  label: Is Version Of
+  - field_name: contact_point
+    label: Contact Point
 
-- field_name: contact_point
-  label: Contact Point
+  - field_name: ib1_trust_framework
+    label: Trust Framework
+    preset: select
+    validators: ignore_missing ib1_trust_framework_validator
+    choices:
+      - value: http://open-energy.registry.ib1.org
+        label: Open Energy
+      - value: http://general.registry.ib1.org
+        label: General
 
-- field_name: ib1_trust_framework
-  label: Trust Framework
-  preset: select
-  validators: ignore_missing ib1_trust_framework_validator
-  choices:
-    - value: http://open-energy.registry.ib1.org
-      label: Open Energy
-    - value: http://general.registry.ib1.org
-      label: General
-      
-- field_name: ib1_sensitivity_class
-  label: Sensitivity Class
-  preset: select
-  validators: ignore_missing ib1_sensitivity_class_validator
-  choices:
-    - value: IB1-O
-      label: IB1-O
-    - value: IB1-SA
-      label: IB1-SA
-    - value: IB1-SB
-      label: IB1-SB
+  - field_name: ib1_sensitivity_class
+    label: Sensitivity Class
+    preset: select
+    validators: ignore_missing ib1_sensitivity_class_validator
+    choices:
+      - value: IB1-O
+        label: IB1-O
+      - value: IB1-SA
+        label: IB1-SA
+      - value: IB1-SB
+        label: IB1-SB
 
-- field_name: ib1_dataset_assurance
-  label: Dataset Assurance
-  validators: ib1_dataset_assurance_validator
-  preset: select
-  choices:
-    - value: IcebreakerOne.DatasetLevel1
-      label: IcebreakerOne.DatasetLevel1
-    - value: IcebreakerOne.DatasetLevel2
-      label: IcebreakerOne.DatasetLevel2
-    - value: IcebreakerOne.DatasetLevel3
-      label: IcebreakerOne.DatasetLevel3
-    - value: IcebreakerOne.DatasetLevel4
-      label: IcebreakerOne.DatasetLevel4
+  - field_name: ib1_dataset_assurance
+    label: Dataset Assurance
+    validators: ib1_dataset_assurance_validator
+    preset: select
+    choices:
+      - value: IcebreakerOne.DatasetLevel1
+        label: IcebreakerOne.DatasetLevel1
+      - value: IcebreakerOne.DatasetLevel2
+        label: IcebreakerOne.DatasetLevel2
+      - value: IcebreakerOne.DatasetLevel3
+        label: IcebreakerOne.DatasetLevel3
+      - value: IcebreakerOne.DatasetLevel4
+        label: IcebreakerOne.DatasetLevel4
 
-- field_name: ib1_access
-  label: Access
+  - field_name: ib1_access
+    label: Access
 
 resource_fields:
-- field_name: url
-  label: URL
-  preset: resource_url_upload
+  - field_name: url
+    label: URL
+    preset: resource_url_upload
 
-- field_name: name
-  label: Name
-  form_placeholder: eg. January 2011 Gold Prices
+  - field_name: name
+    label: Name
+    form_placeholder: eg. January 2011 Gold Prices
 
-- field_name: description
-  label: Description
-  form_snippet: markdown.html
-  form_placeholder: Some useful notes about the data
+  - field_name: description
+    label: Description
+    form_snippet: markdown.html
+    form_placeholder: Some useful notes about the data
 
-- field_name: format
-  label: Format
-  preset: resource_format_autocomplete
+  - field_name: format
+    label: Format
+    preset: resource_format_autocomplete
 
-- field_name: resource_type
-  label: Type
-  preset: select
-  validators: ignore_missing resource_type_validator
-  required: true
-  choices:
-    - value: regular
-      label: Regular
-    - value: documentation
-      label: Documentation
-    - value: historic
-      label: Historic
-      
-- field_name: schema
-  label: Schema fields
-  preset: json_object
-  validators: ignore_missing schema_json_object
-  output_validators: schema_output_string_json
+  - field_name: resource_type
+    label: Type
+    preset: select
+    validators: ignore_missing resource_type_validator
+    required: true
+    choices:
+      - value: regular
+        label: Regular
+      - value: documentation
+        label: Documentation
+      - value: historic
+        label: Historic
 
-- field_name: last_datastore_modified
-  label: Datastore last updated
-  form_snippet: null
-  
+  - field_name: is_geospatial
+    label: Geospatial data
+    help_text: Controls whether this data can be used on the map builder or whether it can be added as a layer on geospatial data previews
+    required: true
+    preset: select
+    validators: boolean_validator
+    output_validators: boolean_validator
+    form_attrs:
+      data-module: resource-geospatial
+    choices:
+      - value: false
+        label: "No"
+      - value: true
+        label: "Yes"
+
+  - field_name: schema
+    label: Schema fields
+    preset: json_object
+    validators: ignore_missing schema_json_object
+    output_validators: schema_output_string_json
+
+  - field_name: last_datastore_modified
+    label: Datastore last updated
+    form_snippet: null

@@ -1,9 +1,20 @@
 import json
 import datetime
 from sqlalchemy import or_
+from ckan.common import _, config
 from ckan.plugins import toolkit as tk
+import ckan.lib.authenticator as authenticator
 from ckanext.scheming.helpers import scheming_field_choices, scheming_get_dataset_schema, scheming_field_by_name
+from sqlalchemy import func
+import string
+import random
 import logging
+import os
+
+generic_error_message = {
+    'errors': {'auth': [_('Unable to authenticate user')]},
+    'error_summary': {_('auth'): _('Unable to authenticate user')},
+}
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +91,85 @@ def _transform_package_show(package_dict, frequencies):
         is_up_to_date = now < update_required_after
 
     package_dict["is_up_to_date"] = is_up_to_date
+
+
+
+def user_login(context, data_dict):
+    try:
+        frontend_secret = os.getenv("CKANEXT__SSE__CLIENT_AUTH_SECRET")
+        client_secret = data_dict['client_secret']
+
+        if frontend_secret != client_secret:
+            return {
+                'errors': {'auth': [_('Unable to authenticate user')]},
+                'error_summary': {_('auth'): _('Client not authorized to authenticate')},
+            }
+
+        session = context['session']
+        email = data_dict['email']
+        model = context['model']
+        context['ignore_auth'] = True
+
+        if not email:
+            return generic_error_message
+
+        user = session.query(model.User).filter(func.lower(
+            model.User.email) == func.lower(email)).first()
+
+        if not user:
+            password_length = 10
+            password = ''.join(
+                random.choice(string.ascii_letters + string.digits)
+                for _ in range(password_length)
+            )
+
+            user_name = ''.join(
+                c.lower() if c.isalnum() else '_' for c in email.split('@')[0]
+            )
+
+            user = tk.get_action('user_create')(
+                context,
+                {
+                    'name': user_name,
+                    'display_name': data_dict['name'],
+                    'fullname': data_dict['name'],
+                    'email': email,
+                    'password': password,
+                    'state': 'active',
+                },
+            )
+        else:
+            user = user.as_dict()
+
+        return _generate_token(context, user)
+    except Exception as e:
+        log.error(e)
+        return json.dumps({"error": True})
+
+def _generate_token(context, user):
+    context['ignore_auth'] = True
+    user['frontend_token'] = None
+
+    try:
+        api_tokens = tk.get_action('api_token_list')(
+            context, {'user_id': user['name']}
+        )
+
+        for token in api_tokens:
+            if token['name'] == 'frontend_token':
+                tk.get_action('api_token_revoke')(
+                    context, {'jti': token['id']})
+
+        frontend_token = tk.get_action('api_token_create')(
+            context, {'user': user['name'], 'name': 'frontend_token'}
+        )
+
+        user['frontend_token'] = frontend_token.get('token')
+
+    except Exception as e:
+        log.error(e)
+
+    return user
 
 
 @tk.side_effect_free

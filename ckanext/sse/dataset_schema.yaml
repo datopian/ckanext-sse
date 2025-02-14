@@ -14,7 +14,6 @@ dataset_fields:
   preset: dataset_slug
   form_placeholder: eg. my-dataset
 
-
 - field_name: notes
   label: Description
   form_snippet: markdown.html
@@ -46,7 +45,7 @@ dataset_fields:
 - field_name: version
   label: Version
   validators: ignore_missing unicode_safe package_version_validator
-  form_placeholder: "1.0"
+  form_placeholder: 1.0
 
 - field_name: author
   label: Author
@@ -226,7 +225,29 @@ resource_fields:
       label: Documentation
     - value: historic
       label: Historic
-      
+
+- field_name: level
+  label: Level
+  preset: admin_only_select
+  required: true
+  choices:
+    - value: public
+      label: Public
+    - value: registered
+      label: Registered Users
+    - value: any_organization
+      label: Any Organization Members (Trusted Users)
+    - value: same_organization
+      label: Same Organization Members
+    - value: only_allowed_users
+      label: Allowed Users Only
+
+- field_name: allowed_users
+  label: Allowed Users
+  preset: member_autocomplete
+  form_snippet: admin_only_input.html
+  is_array_field: True
+    
 - field_name: schema
   label: Schema fields
   preset: json_object

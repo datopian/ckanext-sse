@@ -6,6 +6,7 @@ from ckanext.sse import action
 import ckan.authz
 import ckanext.sse.views.dataset as dataset
 import ckanext.sse.activity as activity
+from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
 from ckan import logic, model, plugins
 from ckanext.sse.validators import (
     coverage_json_object,
@@ -23,6 +24,7 @@ log = logging.getLogger(__name__)
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IValidators)
+    plugins.implements(plugins.ITemplateHelpers)
     plugins.implements(plugins.IActions)
     plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IBlueprint)
@@ -39,7 +41,7 @@ class SsePlugin(plugins.SingletonPlugin):
         else:
             labels = []
         groups = dataset_obj.get_groups('user_group')
-        
+
         for group in groups:
             labels.append(u'user-group-%s' % group.id)
 
@@ -50,6 +52,10 @@ class SsePlugin(plugins.SingletonPlugin):
 
         return labels
 
+    # ITemplateHelpers
+    def get_helpers(self):
+        return {'is_org_admin_by_package_id': is_org_admin_by_package_id, 'is_admin_of_any_org': is_admin_of_any_org}
+    
     # IPermissionLabels
     def get_user_dataset_labels(self, user_obj: model.User) -> list[str]:
         labels = [u'public']
@@ -160,6 +166,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_create": action.package_create,
             "package_update": action.package_update,
             "package_show": action.package_show,
+            "user_login": action.user_login,
             "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,

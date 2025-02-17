@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import TEXT, JSONB
 
 log = logging.getLogger(__name__)
 
+
 def get_subscriptions():
     return {
         tk.signals.action_succeeded: [

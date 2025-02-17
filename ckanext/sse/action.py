@@ -184,8 +184,6 @@ def package_show(up_func, context, data_dict):
 
     frequencies = _get_dataset_schema_frequency_options()
     _transform_package_show(result, frequencies)
-
-    
     return result
 
 

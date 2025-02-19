@@ -38,6 +38,7 @@ generic_error_message = {
     'error_summary': {_('auth'): _('Unable to authenticate user')},
 }
 
+
 def _convert_dct_to_stringify_json(data_dict):
     for resource in data_dict.get("resources", []):
         if resource.get("schema"):
@@ -59,6 +60,7 @@ def package_create(up_func, context, data_dict):
     result = up_func(context, data_dict)
     return result
 
+
 @logic.validate(package_request_access_schema)
 @tk.side_effect_free
 def request_access_to_dataset(context, data_dict):
@@ -66,6 +68,14 @@ def request_access_to_dataset(context, data_dict):
         raise NotAuthorized
     user = toolkit.get_action('user_show')(
         {'user': os.environ.get('CKAN_SYSADMIN_NAME')}, {'id': toolkit.current_user.id})
+
+    already_have_access_error = {
+        'success': False,
+        'errors': {'validation': [_('You already have access to the dataset\'s resources')]},
+    }
+
+    if user.get('sysadmin'):
+        return already_have_access_error
 
     pkg = None
 
@@ -88,6 +98,12 @@ def request_access_to_dataset(context, data_dict):
             'success': False,
             'errors': {'validation': [_('Dataset not found or private')]},
         }
+
+    is_user_collaborator_already = any(user.get('id') == value for dict in tk.get_action('package_collaborator_list')(
+        {'ignore_auth': True}, {'id': pkg.get('id')}) for value in dict.values())
+
+    if is_user_collaborator_already:
+        return already_have_access_error
 
     is_there_request_access_already_created_for_the_user = PackageAccessRequest.get_by_package_user_and_status(
         pkg.get('id'), user.get('id'), 'pending')
@@ -120,6 +136,7 @@ def request_access_to_dataset(context, data_dict):
     success = send_request_mail_to_org_admins(email_notification_dict)
 
     return {"success": success, 'message': 'Your request was sent successfully' if success else 'Your request was not registered'}
+
 
 @tk.chained_action
 def package_update(up_func, context, data_dict):

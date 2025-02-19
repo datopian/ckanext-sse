@@ -4,6 +4,7 @@ sse-js:
   contents:
     - dataset-modal.js
     - restricted-field.js
+    - resource-geospatial.js
   extra:
     preload:
       - base/main

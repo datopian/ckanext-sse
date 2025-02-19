@@ -13,7 +13,6 @@ import ckanext.sse.activity as activity
 from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
 from ckan import logic, model, plugins
 import ckanext.sse.signals as signals
-import ckanext.sse.views.dataset as dataset
 from ckanext.sse import action
 from ckanext.sse.validators import (
     coverage_json_object,

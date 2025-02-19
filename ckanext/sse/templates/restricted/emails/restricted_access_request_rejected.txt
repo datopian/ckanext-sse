@@ -1,0 +1,10 @@
+{% trans %}Dear{% endtrans %} {{ user_name }},
+
+{% trans %}Your access data request to the {{package_name}} resources has been {{status}}.{% endtrans %}
+
+{{ rejection_message }}
+{% trans %}Please don't hesitate to resubmit your request.{% endtrans %}
+
+{% trans %}This is an automatically generated e-mail, please do not reply to it.{% endtrans %}
+
+{% trans %}Message sent from {{ site_title }} ({{ site_url }}){% endtrans %}

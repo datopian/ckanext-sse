@@ -1,0 +1,700 @@
+{% extends "page.html" %} {% block title %} {% trans %} Access Requests
+Dashboard {% endtrans %} {% endblock %} {% block content %}
+<div
+  class="flash-messages"
+  style="
+    align-items: center;
+    height: 85px;
+    display: flex;
+    justify-content: center;
+    background: #e8e8e8;
+  "
+>
+  {% for category, message in h.get_flashed_messages(with_categories=true) %}
+  <div
+    class="alert alert-dismissible fade show {{ category }}"
+    style="margin-bottom: 0"
+  >
+    {{ h.literal(message) }}
+  </div>
+  {% endfor %}
+</div>
+{{super()}} {% endblock %} {% block main_content %}
+<div
+  style="
+    background-color: white;
+    position: relative;
+    min-height: 300px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.05);
+  "
+>
+  <h1 style="padding-left: 10px; padding-top: 10px; margin-bottom: 35px;">
+    {% trans %}Access Requests Dashboard{% endtrans %}
+  </h1>
+
+  <ul class="nav nav-tabs" id="requestTab" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link active"
+        id="pending-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#pending"
+        type="button"
+        role="tab"
+        aria-controls="pending"
+        aria-selected="true"
+      >
+        {% trans %}Pending{% endtrans %}
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link"
+        id="approved-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#approved"
+        type="button"
+        role="tab"
+        aria-controls="approved"
+        aria-selected="false"
+      >
+        {% trans %}Approved{% endtrans %}
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link"
+        id="rejected-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#rejected"
+        type="button"
+        role="tab"
+        aria-controls="rejected"
+        aria-selected="false"
+      >
+        {% trans %}Rejected{% endtrans %}
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link"
+        id="revoked-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#revoked"
+        type="button"
+        role="tab"
+        aria-controls="revoked"
+        aria-selected="false"
+      >
+        {% trans %}Revoked{% endtrans %}
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link"
+        id="all-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#all"
+        type="button"
+        role="tab"
+        aria-controls="all"
+        aria-selected="false"
+      >
+        {% trans %}All{% endtrans %}
+      </button>
+    </li>
+  </ul>
+  <div style="padding: 20px">
+    <div
+      class="tab-content tab-pane fade show active"
+      id="pending"
+      role="tabpanel"
+      aria-labelledby="pending-tab"
+    >
+      <h2>{% trans %}Pending Requests{% endtrans %}</h2>
+      {% if requests|length > 0 %}
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>{% trans %}Request ID{% endtrans %}</th>
+            <th>{% trans %}Package{% endtrans %}</th>
+            <th>{% trans %}Requested By{% endtrans %}</th>
+            <th>{% trans %}Message{% endtrans %}</th>
+            <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Actions{% endtrans %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for request_item in requests if request_item.status == 'pending' %}
+          <tr>
+            <td>{{ request_item.id }}</td>
+            <td>
+              {% if request_item.package %}
+              <a
+                href="{{ h.url_for('dataset.read', id=request_item.package.name) }}"
+                >{{ request_item.package.title or request_item.package.name
+                }}</a
+              >
+              {% else %} {% trans %}Package Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>
+              {% if request_item.user %}
+              <a href="{{ h.url_for('user.read', id=request_item.user.name) }}"
+                >{{ request_item.user.name }}</a
+              >
+              {% else %} {% trans %}User Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>{{ request_item.message }}</td>
+            <td>
+              {% if request_item.organization %}
+              <a
+                href="{{ h.url_for('group.read', id=request_item.organization.name) }}"
+                >{{ request_item.organization.title or
+                request_item.organization.name }}</a
+              >
+              {% else %} {% trans %}Organization Not Found{% endtrans %} {%
+              endif %}
+            </td>
+            <td>
+              <form
+                action="{{ url_for('access_requests.update_request_status') }}"
+                method="post"
+                class="d-inline"
+              >
+                <input
+                  type="hidden"
+                  name="request_id"
+                  value="{{ request_item.id }}"
+                />
+                <input type="hidden" name="action" value="approve" />
+                <button type="submit" class="btn btn-success btn-sm">
+                  {% trans %}Approve{% endtrans %}
+                </button>
+              </form>
+              <button
+                type="button"
+                class="btn btn-danger btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#rejectModal{{ request_item.id }}"
+              >
+                {% trans %}Reject{% endtrans %}
+              </button>
+
+              <div
+                class="modal fade"
+                id="rejectModal{{ request_item.id }}"
+                tabindex="-1"
+                aria-labelledby="rejectModalLabel{{ request_item.id }}"
+                aria-hidden="true"
+              >
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5
+                        class="modal-title"
+                        id="rejectModalLabel{{ request_item.id }}"
+                      >
+                        {% trans %}Reject Request{% endtrans %} {{
+                        request_item.id }}
+                      </h5>
+                      <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"
+                      ></button>
+                    </div>
+                    <div class="modal-body">
+                      <form
+                        action="{{ url_for('access_requests.update_request_status') }}"
+                        method="post"
+                      >
+                        <input
+                          type="hidden"
+                          name="request_id"
+                          value="{{ request_item.id }}"
+                        />
+                        <input type="hidden" name="action" value="reject" />
+                        <div class="mb-3">
+                          <label
+                            for="rejection_message{{ request_item.id }}"
+                            class="form-label"
+                            >{% trans %}Rejection Message (Optional){% endtrans
+                            %}</label
+                          >
+                          <textarea
+                            class="form-control"
+                            id="rejection_message{{ request_item.id }}"
+                            name="rejection_message"
+                            rows="3"
+                          ></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-danger">
+                          {% trans %}Reject Request{% endtrans %}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p>{% trans %}No pending access requests.{% endtrans %}</p>
+      {% endif %}
+    </div>
+
+    <div
+      class="tab-content tab-pane fade"
+      id="approved"
+      role="tabpanel"
+      aria-labelledby="approved-tab"
+    >
+      <h2>{% trans %}Approved Requests{% endtrans %}</h2>
+      {% if requests|length > 0 %}
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>{% trans %}Request ID{% endtrans %}</th>
+            <th>{% trans %}Package{% endtrans %}</th>
+            <th>{% trans %}Requested By{% endtrans %}</th>
+            <th>{% trans %}Message{% endtrans %}</th>
+            <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Status{% endtrans %}</th>
+            <th>{% trans %}Revoke{% endtrans %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for request_item in requests if request_item.status == 'approved'
+          %}
+          <tr>
+            <td>{{ request_item.id }}</td>
+            <td>
+              {% if request_item.package %}
+              <a
+                href="{{ h.url_for('dataset.read', id=request_item.package.name) }}"
+                >{{ request_item.package.title or request_item.package.name
+                }}</a
+              >
+              {% else %} {% trans %}Package Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>
+              {% if request_item.user %}
+              <a href="{{ h.url_for('user.read', id=request_item.user.name) }}"
+                >{{ request_item.user.name }}</a
+              >
+              {% else %} {% trans %}User Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>{{ request_item.message }}</td>
+            <td>
+              {% if request_item.organization %}
+              <a
+                href="{{ h.url_for('group.read', id=request_item.organization.name) }}"
+                >{{ request_item.organization.title or
+                request_item.organization.name }}</a
+              >
+              {% else %} {% trans %}Organization Not Found{% endtrans %} {%
+              endif %}
+            </td>
+            <td>
+              <span class="badge bg-success"
+                >{% trans %}Approved{% endtrans %}</span
+              >
+            </td>
+            <td style="display: flex; justify-content: center">
+              <form
+                action="{{ url_for('access_requests.update_request_status') }}"
+                method="post"
+                class="d-inline"
+              >
+                <input
+                  type="hidden"
+                  name="request_id"
+                  value="{{ request_item.id }}"
+                />
+              </form>
+              <button
+                type="button"
+                data-bs-toggle="modal"
+                data-bs-target="#revokeModal{{ request_item.id }}"
+                style="
+                  background: none; /* Remove background */
+                  border: none; /* Remove border */
+                  padding: 0; /* Remove padding */
+                  margin: 0; /* Remove margins */
+                  font-family: inherit; /* Inherit font from parent */
+                  font-size: inherit; /* Inherit font size from parent */
+                  color: inherit; /* Inherit text color from parent */
+                  cursor: pointer; /* Maintain pointer cursor */
+                  text-decoration: none; /* Remove underlines from links if used as buttons */
+                  appearance: none; /* For webkit browsers */
+                  -webkit-appearance: none; /* For webkit browsers */
+                  -moz-appearance: none;
+                  display: flex;
+                  align-items: center;
+                  justify-items: center;
+                  justify-content: center;
+                  cursor: pointer;
+                "
+              >
+                <div
+                  style="
+                    border-radius: 50%;
+                    border: 2px solid #bb2d3b;
+                    width: 20px;
+                    display: flex;
+                    justify-content: center;
+                    height: 20px;
+                    align-items: center;
+                  "
+                >
+                  <i
+                    class="fa-solid fa-x"
+                    style="color: #bb2d3b; font-size: 12px"
+                  ></i>
+                </div>
+              </button>
+
+              <div
+                class="modal fade"
+                id="revokeModal{{ request_item.id }}"
+                tabindex="-1"
+                aria-labelledby="revokeModalLabel{{ request_item.id }}"
+                aria-hidden="true"
+              >
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5
+                        class="modal-title"
+                        id="revokeModalLabel{{ request_item.id }}"
+                      >
+                        {% trans %}Revoke Access{% endtrans %}
+                      </h5>
+                      <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"
+                      ></button>
+                    </div>
+                    <div class="modal-body">
+                      <form
+                        action="{{ url_for('access_requests.update_request_status') }}"
+                        method="post"
+                      >
+                        <input
+                          type="hidden"
+                          name="request_id"
+                          value="{{ request_item.id }}"
+                        />
+                        <input type="hidden" name="action" value="revoke" />
+                        <div class="mb-3">
+                          <label
+                            for="rejection_message{{ request_item.id }}"
+                            class="form-label"
+                            >{% trans %}Revocation Message (Optional){% endtrans
+                            %}</label
+                          >
+                          <textarea
+                            class="form-control"
+                            id="rejection_message{{ request_item.id }}"
+                            name="rejection_message"
+                            rows="3"
+                          ></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-danger">
+                          {% trans %}Revoke Access{% endtrans %}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p>{% trans %}No approved access requests.{% endtrans %}</p>
+      {% endif %}
+    </div>
+
+    <div
+      class="tab-content tab-pane fade"
+      id="rejected"
+      role="tabpanel"
+      aria-labelledby="rejected-tab"
+    >
+      <h2>{% trans %}Rejected Requests{% endtrans %}</h2>
+      {% if requests|length > 0 %}
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>{% trans %}Request ID{% endtrans %}</th>
+            <th>{% trans %}Package{% endtrans %}</th>
+            <th>{% trans %}Requested By{% endtrans %}</th>
+            <th>{% trans %}Message{% endtrans %}</th>
+            <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Status{% endtrans %}</th>
+            <th>{% trans %}Rejection Message{% endtrans %}</th>
+            <th>{% trans %}Rejected By{% endtrans %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for request_item in requests if request_item.status == 'rejected'
+          %}
+          <tr>
+            <td>{{ request_item.id }}</td>
+            <td>
+              {% if request_item.package %}
+              <a
+                href="{{ h.url_for('dataset.read', id=request_item.package.name) }}"
+                >{{ request_item.package.title or request_item.package.name
+                }}</a
+              >
+              {% else %} {% trans %}Package Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>
+              {% if request_item.user %}
+              <a href="{{ h.url_for('user.read', id=request_item.user.name) }}"
+                >{{ request_item.user.name }}</a
+              >
+              {% else %} {% trans %}User Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>{{ request_item.message }}</td>
+            <td>
+              {% if request_item.organization %}
+              <a
+                href="{{ h.url_for('group.read', id=request_item.organization.name) }}"
+                >{{ request_item.organization.title or
+                request_item.organization.name }}</a
+              >
+              {% else %} {% trans %}Organization Not Found{% endtrans %} {%
+              endif %}
+            </td>
+            <td>
+              <span class="badge bg-danger"
+                >{% trans %}Rejected{% endtrans %}</span
+              >
+            </td>
+            <td>{{ request_item.rejection_message or ''}}</td>
+            <td>
+              {% if request_item.approved_or_rejected_by_user %}
+              <a
+                href="{{ h.url_for('user.read', id=request_item.approved_or_rejected_by_user.name) }}"
+                >{{ request_item.approved_or_rejected_by_user.name }}</a
+              >
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p>{% trans %}No rejected access requests.{% endtrans %}</p>
+      {% endif %}
+    </div>
+    
+    <div
+      class="tab-content tab-pane fade"
+      id="revoked"
+      role="tabpanel"
+      aria-labelledby="revoked-tab"
+    >
+      <h2>{% trans %}Revoked Requests{% endtrans %}</h2>
+      {% if requests|length > 0 %}
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>{% trans %}Request ID{% endtrans %}</th>
+            <th>{% trans %}Package{% endtrans %}</th>
+            <th>{% trans %}Requested By{% endtrans %}</th>
+            <th>{% trans %}Message{% endtrans %}</th>
+            <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Status{% endtrans %}</th>
+            <th>{% trans %}Revocation Message{% endtrans %}</th>
+            <th>{% trans %}Revoked By{% endtrans %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for request_item in requests if request_item.status == 'revoked'
+          %}
+          <tr>
+            <td>{{ request_item.id }}</td>
+            <td>
+              {% if request_item.package %}
+              <a
+                href="{{ h.url_for('dataset.read', id=request_item.package.name) }}"
+                >{{ request_item.package.title or request_item.package.name
+                }}</a
+              >
+              {% else %} {% trans %}Package Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>
+              {% if request_item.user %}
+              <a href="{{ h.url_for('user.read', id=request_item.user.name) }}"
+                >{{ request_item.user.name }}</a
+              >
+              {% else %} {% trans %}User Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>{{ request_item.message }}</td>
+            <td>
+              {% if request_item.organization %}
+              <a
+                href="{{ h.url_for('group.read', id=request_item.organization.name) }}"
+                >{{ request_item.organization.title or
+                request_item.organization.name }}</a
+              >
+              {% else %} {% trans %}Organization Not Found{% endtrans %} {%
+              endif %}
+            </td>
+            <td>
+              <span class="badge bg-danger"
+                >{% trans %}Revoked{% endtrans %}</span
+              >
+            </td>
+            <td>{{ request_item.rejection_message or ''}}</td>
+            <td>
+              {% if request_item.approved_or_rejected_by_user %}
+              <a
+                href="{{ h.url_for('user.read', id=request_item.approved_or_rejected_by_user.name) }}"
+                >{{ request_item.approved_or_rejected_by_user.name }}</a
+              >
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p>{% trans %}No revoked access requests.{% endtrans %}</p>
+      {% endif %}
+    </div>
+
+    <div
+      class="tab-content tab-pane fade"
+      id="all"
+      role="tabpanel"
+      aria-labelledby="all-tab"
+    >
+      <h2>{% trans %}All Requests{% endtrans %}</h2>
+      {% if requests|length > 0 %}
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>{% trans %}Request ID{% endtrans %}</th>
+            <th>{% trans %}Package{% endtrans %}</th>
+            <th>{% trans %}Requested By{% endtrans %}</th>
+            <th>{% trans %}Message{% endtrans %}</th>
+            <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Status{% endtrans %}</th>
+            <th>{% trans %}Rejection/Revocation Message{% endtrans %}</th>
+            <th>{% trans %}Rejected/Revoked/Approved By{% endtrans %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for request_item in requests %}
+          <tr>
+            <td>{{ request_item.id }}</td>
+            <td>
+              {% if request_item.package %}
+              <a
+                href="{{ h.url_for('dataset.read', id=request_item.package.name) }}"
+                >{{ request_item.package.title or request_item.package.name
+                }}</a
+              >
+              {% else %} {% trans %}Package Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>
+              {% if request_item.user %}
+              <a href="{{ h.url_for('user.read', id=request_item.user.name) }}"
+                >{{ request_item.user.name }}</a
+              >
+              {% else %} {% trans %}User Not Found{% endtrans %} {% endif %}
+            </td>
+            <td>{{ request_item.message }}</td>
+            <td>
+              {% if request_item.organization %}
+              <a
+                href="{{ h.url_for('group.read', id=request_item.organization.name) }}"
+                >{{ request_item.organization.title or
+                request_item.organization.name }}</a
+              >
+              {% else %} {% trans %}Organization Not Found{% endtrans %} {%
+              endif %}
+            </td>
+            <td>
+              {% if request_item.status == 'pending' %}
+              <span class="badge bg-warning"
+                >{% trans %}Pending{% endtrans %}</span
+              >
+              {% elif request_item.status == 'approved' %}
+              <span class="badge bg-success"
+                >{% trans %}Approved{% endtrans %}</span
+              >
+              {% else %}
+              <span class="badge bg-danger"
+                > 
+                {% if request_item.status == 'rejected' %} 
+                {% trans %}Rejected{% endtrans %} 
+                {% else %} 
+                {% trans %}Revoked{%endtrans %} 
+                {% endif %}</span
+              >
+              {% endif %}
+            </td>
+            <td>{{ request_item.rejection_message or '' }}</td>
+            <td>
+              {% if request_item.approved_or_rejected_by_user %}
+              <a
+                href="{{ h.url_for('user.read', id=request_item.approved_or_rejected_by_user.name) }}"
+                >{{ request_item.approved_or_rejected_by_user.name }}</a
+              >
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p>{% trans %}No access requests found.{% endtrans %}</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %} {% block scripts %} {{super()}}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const urlHash = window.location.hash;
+    if (urlHash) {
+      const tabTrigger = document.querySelector(
+        'button[data-bs-target="' + urlHash + '"]'
+      );
+      if (tabTrigger) {
+        bootstrap.Tab.getOrCreateInstance(tabTrigger).show();
+      }
+    }
+
+    const tabButtons = document.querySelectorAll(
+      '#requestTab button[data-bs-toggle="tab"]'
+    );
+
+    tabButtons.forEach(function (button) {
+      button.addEventListener("shown.bs.tab", function (event) {
+        const targetTab = event.target;
+        const targetId = targetTab.getAttribute("data-bs-target");
+        if (targetId) {
+          window.location.hash = targetId;
+        }
+      });
+    });
+  });
+</script>
+{% endblock %}

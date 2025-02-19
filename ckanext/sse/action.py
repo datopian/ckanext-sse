@@ -1,23 +1,42 @@
+from __future__ import unicode_literals
 import json
 import datetime
 from sqlalchemy import or_
-from ckan.common import _, config
+from ckan.common import _
 from ckan.plugins import toolkit as tk
-import ckan.lib.authenticator as authenticator
 from ckanext.scheming.helpers import scheming_field_choices, scheming_get_dataset_schema, scheming_field_by_name
 from sqlalchemy import func
 import string
 import random
-import logging
+from .model import PackageAccessRequest
+from .schemas import package_request_access_schema
 import os
+
+
+from logging import getLogger
+import ckan
+import ckan.logic
+import ckan.lib.navl.dictization_functions as dictization_functions
+from ckan.plugins import toolkit as tk
+import ckan.logic as logic
+import ckan.plugins.toolkit as toolkit
+from .logic import send_request_mail_to_org_admins
+from .schemas import package_request_access_schema
+
+DataError = dictization_functions.DataError
+unflatten = dictization_functions.unflatten
+
+
+log = getLogger(__name__)
+
+
+NotFound = ckan.logic.NotFound
+NotAuthorized = ckan.logic.NotAuthorized
 
 generic_error_message = {
     'errors': {'auth': [_('Unable to authenticate user')]},
     'error_summary': {_('auth'): _('Unable to authenticate user')},
 }
-
-log = logging.getLogger(__name__)
-
 
 def _convert_dct_to_stringify_json(data_dict):
     for resource in data_dict.get("resources", []):
@@ -40,6 +59,67 @@ def package_create(up_func, context, data_dict):
     result = up_func(context, data_dict)
     return result
 
+@logic.validate(package_request_access_schema)
+@tk.side_effect_free
+def request_access_to_dataset(context, data_dict):
+    if toolkit.current_user.is_anonymous:
+        raise NotAuthorized
+    user = toolkit.get_action('user_show')(
+        {'user': os.environ.get('CKAN_SYSADMIN_NAME')}, {'id': toolkit.current_user.id})
+
+    pkg = None
+
+    try:
+        pkg = toolkit.get_action('package_show')(
+            context, {'id': data_dict.get('package_id')})
+        data_dict['pkg_dict'] = pkg
+    except toolkit.ObjectNotFound:
+        raise NotFound('Dataset not found')
+    except Exception as e:
+        log.error(e)
+        return {
+            'success': False,
+            'errors': {'error': [_('Exception retrieving dataset to send mail')]},
+            'error_summary': {_('error'): _('Exception retrieving dataset to send mail')},
+        }
+
+    if pkg.get('private'):
+        return {
+            'success': False,
+            'errors': {'validation': [_('Dataset not found or private')]},
+        }
+
+    is_there_request_access_already_created_for_the_user = PackageAccessRequest.get_by_package_user_and_status(
+        pkg.get('id'), user.get('id'), 'pending')
+
+    if len(is_there_request_access_already_created_for_the_user) > 0:
+        return {
+            'success': False,
+            'errors': {'validation': [_('Request already created for this resource')]},
+        }
+
+    PackageAccessRequest.create(package_id=pkg.get('id'), user_id=user.get('id'), org_id=pkg.get(
+        'organization').get('id'), message=data_dict.get('message'))
+
+    site_title = os.environ.get('CKAN_FRONTEND_SITE_TITLE')
+
+    email_notification_dict = {
+        'user_id': user.get('id'),
+        'site_title': site_title,
+        'user_name': user.get('full_name') or user.get('display_name') or user.get('name'),
+        'user_email': user.get('email'),
+        'package_name': pkg.get('name') or pkg.get('id'),
+        'package_title': pkg.get('title') or pkg.get('name') or pkg.get('id'),
+        'package_id': pkg.get('id'),
+        'user_organization': data_dict.get('user_organization', ''),
+        'org_id': pkg.get('organization').get('id'),
+        'package_type': pkg.get('type'),
+        'message': data_dict.get('message'),
+    }
+
+    success = send_request_mail_to_org_admins(email_notification_dict)
+
+    return {"success": success, 'message': 'Your request was sent successfully' if success else 'Your request was not registered'}
 
 @tk.chained_action
 def package_update(up_func, context, data_dict):
@@ -51,14 +131,16 @@ def package_update(up_func, context, data_dict):
 def _get_dataset_schema_frequency_options():
     schema = scheming_get_dataset_schema("dataset")
     schema_dataset_fields = schema.get("dataset_fields")
-    frequency_field = scheming_field_by_name(schema_dataset_fields, "frequency")
+    frequency_field = scheming_field_by_name(
+        schema_dataset_fields, "frequency")
     frequencies = scheming_field_choices(frequency_field)
     return frequencies
 
 
-def _transform_package_show(package_dict, frequencies):
+def _transform_package_show(package_dict, frequencies, context):
     resources = package_dict.get("resources", [])
-    regular_resources = list(filter(lambda x: x.get("resource_type") == "regular", resources))
+    regular_resources = list(filter(lambda x: x.get(
+        "resource_type") == "regular", resources))
     frequency = package_dict.get("frequency", None)
 
     max_last_modified = None
@@ -86,12 +168,25 @@ def _transform_package_show(package_dict, frequencies):
     is_up_to_date = None
     if expiration is not None and max_last_modified is not None:
         now = datetime.datetime.utcnow()
-        last_data_update_date = datetime.datetime.fromisoformat(max_last_modified)
-        update_required_after =  last_data_update_date + datetime.timedelta(**expiration)
+        last_data_update_date = datetime.datetime.fromisoformat(
+            max_last_modified)
+        update_required_after = last_data_update_date + \
+            datetime.timedelta(**expiration)
         is_up_to_date = now < update_required_after
 
     package_dict["is_up_to_date"] = is_up_to_date
 
+    user = context.get('auth_user_obj')
+    package_dict['has_access_to_resources'] = True
+
+    if package_dict.get('is_restricted'):
+        if not user or user.is_anonymous or (not user.sysadmin and not any(user.id == value for dict in tk.get_action('package_collaborator_list')(
+                {'ignore_auth': True}, {'id': package_dict.get('id')}) for value in dict.values())):
+            package_dict['has_access_to_resources'] = False
+
+    if not package_dict['has_access_to_resources']:
+        package_dict['resources'] = hide_resources_field(
+            package_dict['resources'])
 
 
 def user_login(context, data_dict):
@@ -146,6 +241,7 @@ def user_login(context, data_dict):
         log.error(e)
         return json.dumps({"error": True})
 
+
 def _generate_token(context, user):
     context['ignore_auth'] = True
     user['frontend_token'] = None
@@ -183,10 +279,20 @@ def package_show(up_func, context, data_dict):
     result["format"] = list(formats)
 
     frequencies = _get_dataset_schema_frequency_options()
-    _transform_package_show(result, frequencies)
+    _transform_package_show(result, frequencies, context)
 
-    
     return result
+
+
+def hide_resources_field(resources=[]):
+    if not resources or len(resources) == 0:
+        return []
+
+    for resource in resources:
+        if resource.get('resource_type') != 'documentation':
+            resource['url'] = None
+
+    return resources
 
 
 @tk.side_effect_free
@@ -229,5 +335,5 @@ def package_search(up_func, context, data_dict):
     datasets = result.get("results", [])
     frequencies = _get_dataset_schema_frequency_options()
     for d in datasets:
-        _transform_package_show(d, frequencies)
+        _transform_package_show(d, frequencies, context)
     return result

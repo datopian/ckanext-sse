@@ -12,6 +12,7 @@ from .model import PackageAccessRequest
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
 from ckan import logic, model, plugins
+from .utils import update_resource_extra
 import ckanext.sse.signals as signals
 from ckanext.sse import action
 from ckanext.sse.validators import (

@@ -10,7 +10,7 @@ ckan.module("restricted-select", function ($, _) {
         const restrictedVisibilityId = "#field-private-option-restricted";
         const restrictedOption = $(restrictedVisibilityId);
         const isRestrictedField = $("#field-is_restricted");
-        const visibilitySelect = restrictedOption.parent();
+        let visibilitySelect = restrictedOption.parent();
         const isRestricted = isRestrictedField
           .find("option")
           .eq(1)
@@ -23,6 +23,7 @@ ckan.module("restricted-select", function ($, _) {
           const newOne = visibilitySelect.clone(true, true);
           visibilitySelect.detach();
           parentOfTheVisibilitySelect.append(newOne);
+          visibilitySelect = newOne;
         }
 
         visibilitySelect.change((ev) => {

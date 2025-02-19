@@ -20,7 +20,7 @@ import ckan.lib.navl.dictization_functions as dictization_functions
 from ckan.plugins import toolkit as tk
 import ckan.logic as logic
 import ckan.plugins.toolkit as toolkit
-from .logic import send_request_mail_to_org_admins
+from .logic import send_request_mail_to_org_admins, send_rejection_email_to
 from .schemas import package_request_access_schema
 
 DataError = dictization_functions.DataError
@@ -141,8 +141,58 @@ def request_access_to_dataset(context, data_dict):
 @tk.chained_action
 def package_update(up_func, context, data_dict):
     data_dict = _convert_dct_to_stringify_json(data_dict)
+    remove_collaborators_of_package_and_notify_on_restricted_field_change(
+        data_dict)
     result = up_func(context, data_dict)
     return result
+
+
+def remove_collaborators_of_package_and_notify_on_restricted_field_change(pkg):
+    is_restricted = pkg.get('is_restricted')
+    if not is_restricted or is_restricted == 'True':
+        return
+
+    pkg_before_update = tk.get_action('package_show')(
+        {'ignore_auth': True}, {'id': pkg.get('id')})
+
+    if not pkg_before_update.get('is_restricted'):
+        return
+
+    org_id = pkg_before_update.get('organization').get('id')
+    package_link = f"{os.environ.get('CKAN_FRONTEND_SITE_URL')}/{pkg_before_update.get('organization').get('name')}/{pkg.get('name')}"
+    site_title = os.environ.get('CKAN_FRONTEND_SITE_TITLE')
+    site_url = os.environ.get('CKAN_FRONTEND_SITE_URL')
+    pkg_id = pkg_before_update.get('id')
+
+    package_collaborators = tk.get_action('package_collaborator_list')(
+        {'ignore_auth': True}, {'id': pkg_id})
+
+    delete_collaborator_action = tk.get_action(
+        'package_collaborator_delete')
+
+    user_show_action = tk.get_action(
+        'user_show')
+
+    for collaborator in package_collaborators:
+        delete_collaborator_action(
+            {'ignore_auth': True}, {'id': pkg_id, 'user_id': collaborator.get('user_id')})
+
+        user = user_show_action(
+            {'ignore_auth': True, 'keep_email': True}, {'id': collaborator.get('user_id')})
+
+        send_rejection_email_to({
+            'user_id': user.get('id'),
+            'site_url': site_url,
+            'site_title': site_title,
+            'package_link': package_link,
+            'user_name': user.get('full_name') or user.get('display_name') or user.get('name'),
+            'user_email': user.get('email'),
+            'package_name': pkg.get('name') or pkg_id,
+            'package_title': pkg.get('title') or pkg.get('name') or pkg_id,
+            'package_id': pkg_id,
+            'org_id': org_id,
+            'package_type': pkg.get('type'),
+        }, '', 'revoked')
 
 
 def _get_dataset_schema_frequency_options():

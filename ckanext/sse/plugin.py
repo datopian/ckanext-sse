@@ -168,10 +168,21 @@ class SsePlugin(plugins.SingletonPlugin):
 
         dataset = json.loads(data_dict.get("data_dict"))
         resources = dataset.get("resources", [])
+        has_geospatial_data = False
+        has_geospatial_datastore_active = False
         for resource in resources:
             is_geospatial = resource.get("is_geospatial", False)
+            datastore_active = resource.get("datastore_active", False)
             if is_geospatial:
-                data_dict["has_geospatial_data"] = True
+                if not has_geospatial_data:
+                    has_geospatial_data = True
+
+                if datastore_active and not has_geospatial_datastore_active:
+                    has_geospatial_datastore_active = True
+                    break
+
+        data_dict["has_geospatial_data"] = has_geospatial_data
+        data_dict["has_geospatial_datastore_active"] = has_geospatial_datastore_active
 
         return data_dict
 

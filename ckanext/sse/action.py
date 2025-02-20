@@ -19,7 +19,7 @@ import ckan.logic
 import ckan.lib.navl.dictization_functions as dictization_functions
 import ckan.logic as logic
 import ckan.plugins.toolkit as toolkit
-from .logic import send_request_mail_to_org_admins, send_rejection_email_to
+from .logic import mail_allowed_user, send_request_mail_to_org_admins, mail_rejected_user
 from .schemas import package_request_access_schema
 
 DataError = dictization_functions.DataError
@@ -57,6 +57,60 @@ def _convert_dct_to_stringify_json(data_dict):
 def package_create(up_func, context, data_dict):
     data_dict = _convert_dct_to_stringify_json(data_dict)
     result = up_func(context, data_dict)
+    return result
+
+
+@tk.chained_action
+def package_collaborator_create(up_func, context, data_dict):
+    result = up_func(context, data_dict)
+    if context.get('send_approval_email'):
+        pkg = toolkit.get_action('package_show')({'ignore_auth': True}, {
+            'id': data_dict.get('id')})
+
+        org_id = pkg.get('organization').get('id')
+
+        package_link = f"{os.environ.get('CKAN_FRONTEND_SITE_URL')}/{pkg.get('organization').get('name')}/{pkg.get('name')}"
+        site_title = os.environ.get('CKAN_FRONTEND_SITE_TITLE')
+        site_url = os.environ.get('CKAN_FRONTEND_SITE_URL')
+
+        mail_allowed_user(
+            data_dict.get('user_id'), pkg, org_id, package_link, site_title, site_url)
+
+    return result
+
+
+@tk.chained_action
+def package_collaborator_delete(up_func, context, data_dict):
+    result = up_func(context, data_dict)
+
+    pkg = toolkit.get_action('package_show')({'ignore_auth': True}, {
+        'id': data_dict.get('id')})
+
+    user = toolkit.get_action('user_show')({'ignore_auth': True, 'keep_email': True}, {
+        'id': data_dict.get('user_id')})
+    
+    org_id = pkg.get('organization').get('id')
+
+    package_link = f"{os.environ.get('CKAN_FRONTEND_SITE_URL')}/{pkg.get('organization').get('name')}/{pkg.get('name')}"
+    site_title = os.environ.get('CKAN_FRONTEND_SITE_TITLE')
+    site_url = os.environ.get('CKAN_FRONTEND_SITE_URL')
+
+    email_notification_dict = {
+        'user_id': data_dict.get('user_id'),
+        'site_url': site_url,
+        'site_title': site_title,
+        'package_link': package_link,
+        'user_name': user.get('full_name') or user.get('display_name') or user.get('name'),
+        'user_email': user.get('email'),
+        'package_name': pkg.get('name') or pkg.get('id'),
+        'package_title': pkg.get('title') or pkg.get('name') or pkg.get('id'),
+        'package_id': pkg.get('id'),
+        'org_id': org_id,
+    }
+
+    mail_rejected_user(email_notification_dict,
+                       context.get('revoke_message', ''), 'revoked')
+
     return result
 
 
@@ -179,7 +233,7 @@ def remove_collaborators_of_package_and_notify_on_restricted_field_change(pkg):
         user = user_show_action(
             {'ignore_auth': True, 'keep_email': True}, {'id': collaborator.get('user_id')})
 
-        send_rejection_email_to({
+        mail_rejected_user({
             'user_id': user.get('id'),
             'site_url': site_url,
             'site_title': site_title,
@@ -248,9 +302,9 @@ def _transform_package_show(package_dict, frequencies, context):
     if package_dict.get('is_restricted'):
         if not user or user.is_anonymous or (not user.sysadmin
                                              and not is_user_id_present_in_the_dict_list(user.id, toolkit.get_action('organization_show')({'ignore_auth': True}, {
-                                                                        'id': package_dict.get('organization').get('id')}).get('users'))
-                                            and not is_user_id_present_in_the_dict_list(user.id, tk.get_action('package_collaborator_list')(
-                                            {'ignore_auth': True}, {'id': package_dict.get('id')}))):
+                                                 'id': package_dict.get('organization').get('id')}).get('users'))
+                                             and not is_user_id_present_in_the_dict_list(user.id, tk.get_action('package_collaborator_list')(
+                                                 {'ignore_auth': True}, {'id': package_dict.get('id')}))):
             package_dict['has_access_to_resources'] = False
 
     if not package_dict['has_access_to_resources']:

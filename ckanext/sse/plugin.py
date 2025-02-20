@@ -191,6 +191,8 @@ class SsePlugin(plugins.SingletonPlugin):
     def get_actions(self):
         return {
             "package_create": action.package_create,
+            "package_collaborator_create": action.package_collaborator_create,
+            "package_collaborator_delete": action.package_collaborator_delete,
             "request_access_to_dataset": action.request_access_to_dataset,
             "package_update": action.package_update,
             "package_show": action.package_show,

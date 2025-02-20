@@ -122,7 +122,7 @@ def restricted_check_user_resource_access(user, resource_dict, package_dict):
     }
 
 
-def restricted_mail_allowed_user(user_id, package, org_id, package_url=None, site_title=None, site_url=None):
+def mail_allowed_user(user_id, package, org_id, package_url=None, site_title=None, site_url=None):
     log.debug('restricted_mail_allowed_user: Notifying "{}"'.format(user_id))
     try:
         # Get user information
@@ -209,7 +209,7 @@ def restricted_notify_allowed_users(previous_value, updated_resource):
             "allowed_users", "").split(",")
         for user_id in updated_allowed_users:
             if user_id not in previous_allowed_users:
-                restricted_mail_allowed_user(user_id, updated_resource)
+                mail_allowed_user(user_id, updated_resource)
 
 
 def get_org_admins(context, org_id_or_name):
@@ -334,7 +334,7 @@ def send_request_mail_to_org_admins(data):
     return success
 
 
-def send_rejection_email_to(data, rejection_message: str, status):
+def mail_rejected_user(data, rejection_message: str, status):
     # org_admins = [admin for admin in get_org_admins(
     # {'ignore_auth': True}, data.get('org_id')) if admin.get('email')]
     try:

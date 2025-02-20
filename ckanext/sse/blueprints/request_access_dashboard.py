@@ -6,7 +6,7 @@ from ckanext.sse.logic import is_user_id_present_in_the_dict_list
 from ckan.common import _
 from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
 from ckanext.sse import model as custom_model
-from ckanext.sse.logic import send_rejection_email_to, restricted_mail_allowed_user
+from ckanext.sse.logic import mail_rejected_user
 from ckanext.s3filestore.views.resource import resource_download
 
 import os
@@ -24,7 +24,7 @@ def custom_download(id, resource_id, filename):
     if pkg.get('is_restricted'):
         context = {'ignore_auth': True}
         user = model.User.get(toolkit.c.user)
-        if not user or (not user.sysadmin 
+        if not user or (not user.sysadmin
                         and not is_user_id_present_in_the_dict_list(user.id,
                                                                     toolkit.get_action('organization_show')(context, {
                                                                         'id': pkg.get('organization').get('id')}).get('users'))) \
@@ -149,26 +149,22 @@ def update_request_status():
         'package_title': pkg.get('title') or pkg.get('name') or pkg.get('id'),
         'package_id': pkg.get('id'),
         'org_id': org_id,
-        'package_type': pkg.get('type'),
     }
 
     if action == 'approve':
-        toolkit.get_action('package_collaborator_create')({'ignore_auth': True}, {'id': pkg.get(
+        toolkit.get_action('package_collaborator_create')({'ignore_auth': True, 'send_approval_email': True}, {'id': pkg.get(
             'id'), 'user_id': user.get('id'), 'capacity': 'member'})
-
-        restricted_mail_allowed_user(
-            user.get('id'), pkg, org_id, package_link, site_title, site_url)
     else:
-        if action == 'revoke':
-            toolkit.get_action('package_collaborator_delete')({'ignore_auth': True}, {'id': pkg.get(
-                'id'), 'user_id': user.get('id')})
-
         if rejection_message:
             rejection_message = f'''Reason:
                 {rejection_message}
             '''
-        send_rejection_email_to(email_notification_dict,
-                                rejection_message, new_status)
+        if action == 'revoke':
+            toolkit.get_action('package_collaborator_delete')({'ignore_auth': True, 'send_reject_email': True, 'revoke_message': rejection_message}, {'id': pkg.get(
+                'id'), 'user_id': user.get('id')})
+        else:
+            mail_rejected_user(email_notification_dict,
+                            rejection_message, new_status)
     flash(
         _(f"Request {request_id} {new_status} successfully."), category='alert-success')
     return redirect(url_for('access_requests.access_requests_dashboard'))

@@ -2,18 +2,37 @@ from logging import getLogger
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from ckan.plugins import toolkit
 from ckan import model
+from ckanext.sse.logic import is_user_id_present_in_the_dict_list
 from ckan.common import _
 from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
-
 from ckanext.sse import model as custom_model
 from ckanext.sse.logic import send_rejection_email_to, restricted_mail_allowed_user
-from ckan.common import config
+from ckanext.s3filestore.views.resource import resource_download
 
 import os
 access_requests_blueprint = Blueprint('access_requests', __name__)
+ssen_blueprint = Blueprint('ssen', __name__)
 
 
 log = getLogger(__name__)
+
+
+@ssen_blueprint.route('/dataset/<id>/resource/<resource_id>/download/<filename>')
+def custom_download(id, resource_id, filename):
+    pkg = toolkit.get_action('package_show')({}, {'id': id})
+
+    if pkg.get('is_restricted'):
+        context = {'ignore_auth': True}
+        user = model.User.get(toolkit.c.user)
+        if not user or (not user.sysadmin 
+                        and not is_user_id_present_in_the_dict_list(user.id,
+                                                                    toolkit.get_action('organization_show')(context, {
+                                                                        'id': pkg.get('organization').get('id')}).get('users'))) \
+            and not is_user_id_present_in_the_dict_list(user.id,
+                                                        toolkit.get_action('package_collaborator_list')(context, {'id': pkg.get('id')})):
+            return redirect(f"{os.environ.get('CKAN_FRONTEND_SITE_URL')}/auth/error?error=You not have access to this resource")
+
+    return resource_download(None, id, resource_id, filename)
 
 
 @access_requests_blueprint.route('/access_requests')
@@ -156,4 +175,4 @@ def update_request_status():
 
 
 def get_blueprints():
-    return [access_requests_blueprint]
+    return [access_requests_blueprint, ssen_blueprint]

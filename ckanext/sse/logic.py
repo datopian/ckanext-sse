@@ -384,3 +384,7 @@ def send_rejection_email_to(data, rejection_message: str, status):
         log.error(mailer_exception)
 
     return success
+
+
+def is_user_id_present_in_the_dict_list(user_id, list):
+        return any(user_id == value for dict in list for value in dict.values())

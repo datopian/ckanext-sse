@@ -11,13 +11,12 @@ import random
 from .model import PackageAccessRequest
 from .schemas import package_request_access_schema
 import os
-
+from ckanext.sse.logic import is_user_id_present_in_the_dict_list
 
 from logging import getLogger
 import ckan
 import ckan.logic
 import ckan.lib.navl.dictization_functions as dictization_functions
-from ckan.plugins import toolkit as tk
 import ckan.logic as logic
 import ckan.plugins.toolkit as toolkit
 from .logic import send_request_mail_to_org_admins, send_rejection_email_to
@@ -247,8 +246,11 @@ def _transform_package_show(package_dict, frequencies, context):
     package_dict['has_access_to_resources'] = True
 
     if package_dict.get('is_restricted'):
-        if not user or user.is_anonymous or (not user.sysadmin and not any(user.id == value for dict in tk.get_action('package_collaborator_list')(
-                {'ignore_auth': True}, {'id': package_dict.get('id')}) for value in dict.values())):
+        if not user or user.is_anonymous or (not user.sysadmin
+                                             and not is_user_id_present_in_the_dict_list(user.id, toolkit.get_action('organization_show')({'ignore_auth': True}, {
+                                                                        'id': package_dict.get('organization').get('id')}).get('users'))
+                                            and not is_user_id_present_in_the_dict_list(user.id, tk.get_action('package_collaborator_list')(
+                                            {'ignore_auth': True}, {'id': package_dict.get('id')}))):
             package_dict['has_access_to_resources'] = False
 
     if not package_dict['has_access_to_resources']:

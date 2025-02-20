@@ -1,0 +1,16 @@
+{% trans %}Dear{% endtrans %} {{ user_name }},
+
+{% trans %}You have requested access on {{ site_title }} to the resources of the package: {{ package_name }}.{% endtrans %}
+
+{% trans %}An administrator has granted you access.{% endtrans %}
+
+{% trans %}You can access the resources via the dataset page: {{ package_link }}{% endtrans %}
+
+{% trans %}Best regards,{% endtrans %}
+{% trans %}{{ site_title }} Administrator{% endtrans %}
+
+
+{% trans %}This is an automatically generated e-mail, please do not reply to it.{% endtrans %}
+
+{% trans %}Message sent from {{ site_title }} ({{ site_url }}){% endtrans %}
+

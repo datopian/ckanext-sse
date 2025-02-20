@@ -101,6 +101,17 @@ dataset_fields:
       - value: IT
         label: IT
 
+  - field_name: is_restricted
+    label: Restricted
+    form_snippet: hidden_select.html
+    validators: boolean_validator ignore_missing
+    output_validators: boolean_validator ignore_missing
+    choices:
+      - value: True
+        label: "Yes"
+      - value: False
+        label: "No"
+
   # NOTE: options must exist in
   # http://publications.europa.eu/resource/authority/frequency
   - field_name: frequency
@@ -225,7 +236,6 @@ resource_fields:
         label: Documentation
       - value: historic
         label: Historic
-
   - field_name: is_geospatial
     label: Geospatial data
     help_text: Controls whether this data can be used on the map builder or whether it can be added as a layer on geospatial data previews

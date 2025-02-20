@@ -3,6 +3,7 @@ sse-js:
   output: ckanext-sse/%(version)s-sse.js
   contents:
     - dataset-modal.js
+    - restricted-field.js
     - resource-geospatial.js
   extra:
     preload:

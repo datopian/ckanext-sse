@@ -4,12 +4,16 @@ import logging
 import ckan.authz
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
-from ckan import logic, model
-
-from ckanext.sse.utils import update_resource_extra
+import logging
+from ckanext.sse import action
+import ckan.authz
+from ckanext.sse.blueprints import dataset, request_access_dashboard
+from .model import PackageAccessRequest
 import ckanext.sse.activity as activity
+from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
+from ckan import logic, model, plugins
+from .utils import update_resource_extra
 import ckanext.sse.signals as signals
-import ckanext.sse.views.dataset as dataset
 from ckanext.sse import action
 from ckanext.sse.validators import (
     coverage_json_object,
@@ -23,12 +27,13 @@ from ckanext.sse.validators import (
 
 log = logging.getLogger(__name__)
 
-
 class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IValidators)
+    plugins.implements(plugins.ITemplateHelpers)
     plugins.implements(plugins.IActions)
     plugins.implements(plugins.IPackageController, inherit=True)
+    plugins.implements(plugins.IConfigurable, inherit=True)
     plugins.implements(plugins.IBlueprint)
     plugins.implements(plugins.ISignal, inherit=True)
     plugins.implements(plugins.IPermissionLabels)
@@ -43,6 +48,7 @@ class SsePlugin(plugins.SingletonPlugin):
             labels = ["collaborator-%s" % dataset_obj.id]
         else:
             labels = []
+
         groups = dataset_obj.get_groups("user_group")
 
         for group in groups:
@@ -54,6 +60,16 @@ class SsePlugin(plugins.SingletonPlugin):
             labels.append("creator-%s" % dataset_obj.creator_user_id)
 
         return labels
+
+    # IConfigurable
+    def configure(self, config_):
+        from ckan.model import meta
+        if not PackageAccessRequest.__table__.exists(meta.engine):
+            PackageAccessRequest.__table__.create(meta.engine)
+
+    # ITemplateHelpers
+    def get_helpers(self):
+        return {'is_org_admin_by_package_id': is_org_admin_by_package_id, 'is_admin_of_any_org': is_admin_of_any_org}
 
     # IPermissionLabels
     def get_user_dataset_labels(self, user_obj: model.User) -> list[str]:
@@ -93,7 +109,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IBlueprint
     def get_blueprint(self):
-        return dataset.blueprint
+        return [dataset.blueprint, *request_access_dashboard.get_blueprints()]
 
     # IConfigurer
     def update_config(self, config_):
@@ -175,8 +191,12 @@ class SsePlugin(plugins.SingletonPlugin):
     def get_actions(self):
         return {
             "package_create": action.package_create,
+            "package_collaborator_create": action.package_collaborator_create,
+            "package_collaborator_delete": action.package_collaborator_delete,
+            "request_access_to_dataset": action.request_access_to_dataset,
             "package_update": action.package_update,
             "package_show": action.package_show,
+            "user_login": action.user_login,
             "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,

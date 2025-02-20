@@ -236,6 +236,20 @@ resource_fields:
         label: Documentation
       - value: historic
         label: Historic
+  - field_name: is_geospatial
+    label: Geospatial data
+    help_text: Controls whether this data can be used on the map builder or whether it can be added as a layer on geospatial data previews
+    required: true
+    preset: select
+    validators: boolean_validator
+    output_validators: boolean_validator
+    form_attrs:
+      data-module: resource-geospatial
+    choices:
+      - value: false
+        label: "No"
+      - value: true
+        label: "Yes"
 
   - field_name: schema
     label: Schema fields

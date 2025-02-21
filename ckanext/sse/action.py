@@ -88,7 +88,7 @@ def package_collaborator_delete(up_func, context, data_dict):
 
     user = toolkit.get_action('user_show')({'ignore_auth': True, 'keep_email': True}, {
         'id': data_dict.get('user_id')})
-    
+
     org_id = pkg.get('organization').get('id')
 
     package_link = f"{os.environ.get('CKAN_FRONTEND_SITE_URL')}/{pkg.get('organization').get('name')}/{pkg.get('name')}"
@@ -135,7 +135,6 @@ def request_access_to_dataset(context, data_dict):
     try:
         pkg = toolkit.get_action('package_show')(
             context, {'id': data_dict.get('package_id')})
-        data_dict['pkg_dict'] = pkg
     except toolkit.ObjectNotFound:
         raise NotFound('Dataset not found')
     except Exception as e:
@@ -152,8 +151,8 @@ def request_access_to_dataset(context, data_dict):
             'errors': {'validation': [_('Dataset not found or private')]},
         }
 
-    is_user_collaborator_already = any(user.get('id') == value for dict in tk.get_action('package_collaborator_list')(
-        {'ignore_auth': True}, {'id': pkg.get('id')}) for value in dict.values())
+    is_user_collaborator_already = is_user_id_present_in_the_dict_list(user.get('id'), tk.get_action('package_collaborator_list')(
+        {'ignore_auth': True}, {'id': pkg.get('id')}))
 
     if is_user_collaborator_already:
         return already_have_access_error

@@ -5,8 +5,11 @@ from logging import getLogger
 log = getLogger(__name__)
 
 def is_org_admin_by_package_id(pkg_name):
-    if not pkg_name:
+    if not pkg_name or toolkit.current_user.is_anonymous:
         return False
+    
+    if toolkit.current_user.sysadmin:
+        return True
 
     org_id = toolkit.get_action('package_show')({'ignore_auth': True}, {
         'id': pkg_name}).get('organization').get('id')

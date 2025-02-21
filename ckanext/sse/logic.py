@@ -387,6 +387,6 @@ def mail_rejected_user(data, rejection_message: str, status):
 
 
 def is_user_id_present_in_the_dict_list(user_id, list):
-        if len(list) == 0:
+        if not list or len(list) == 0:
             return False
         return any(user_id == value for dict in list for value in dict.values())

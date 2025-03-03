@@ -2,7 +2,7 @@ from __future__ import unicode_literals
 import json
 import datetime
 from sqlalchemy import or_
-from ckan.common import _
+from ckan.common import _, asbool
 from ckan.plugins import toolkit as tk
 from ckanext.scheming.helpers import scheming_field_choices, scheming_get_dataset_schema, scheming_field_by_name
 from sqlalchemy import func
@@ -21,6 +21,7 @@ import ckan.logic as logic
 import ckan.plugins.toolkit as toolkit
 from .logic import mail_allowed_user, send_request_mail_to_org_admins, mail_rejected_user
 from .schemas import package_request_access_schema
+import ckan.model as model
 
 DataError = dictization_functions.DataError
 unflatten = dictization_functions.unflatten
@@ -458,4 +459,20 @@ def package_search(up_func, context, data_dict):
     frequencies = _get_dataset_schema_frequency_options()
     for d in datasets:
         _transform_package_show(d, frequencies, context)
+    return result
+
+
+@tk.side_effect_free
+def user_extras(context, data_dict):
+    current_user = tk.current_user
+    user_id = current_user.id
+    user = model.User.get(user_id)
+    plugin_extras = user.plugin_extras
+    ssen_plugin_extras = plugin_extras.get("ssen")
+
+    result = {}
+    result["is_verified_user"] = False
+    if ssen_plugin_extras and "is_verified_user" in ssen_plugin_extras:
+        result["is_verified_user"] = asbool(ssen_plugin_extras["is_verified_user"])
+
     return result

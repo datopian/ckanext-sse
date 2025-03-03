@@ -211,6 +211,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
+            "user_extras": action.user_extras
         }
 
     # ISignal

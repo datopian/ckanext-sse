@@ -465,6 +465,9 @@ def package_search(up_func, context, data_dict):
 @tk.side_effect_free
 def user_extras(context, data_dict):
     current_user = tk.current_user
+    if current_user.is_anonymous:
+        raise NotAuthorized("Anonymous users are not allowed to use the API")
+
     user_id = current_user.id
     user = model.User.get(user_id)
     plugin_extras = user.plugin_extras

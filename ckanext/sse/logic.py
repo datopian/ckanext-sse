@@ -337,6 +337,7 @@ def send_request_mail_to_org_admins(data):
 def mail_rejected_user(data, rejection_message: str, status):
     # org_admins = [admin for admin in get_org_admins(
     # {'ignore_auth': True}, data.get('org_id')) if admin.get('email')]
+    success = False
     try:
         extra_vars = {
             'site_title': data.get('site_title') or config.get('ckan.site_title'),

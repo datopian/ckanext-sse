@@ -7,7 +7,7 @@ import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action
 import ckan.authz
-from ckanext.sse.blueprints import dataset, request_access_dashboard
+from ckanext.sse.blueprints import dataset, request_access_dashboard, admin
 from .model import PackageAccessRequest
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
@@ -109,7 +109,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IBlueprint
     def get_blueprint(self):
-        return [dataset.blueprint, *request_access_dashboard.get_blueprints()]
+        return [dataset.blueprint, *request_access_dashboard.get_blueprints(), admin.blueprint]
 
     # IConfigurer
     def update_config(self, config_):
@@ -211,6 +211,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
+            "user_extras": action.user_extras
         }
 
     # ISignal

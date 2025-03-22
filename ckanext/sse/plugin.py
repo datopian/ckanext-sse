@@ -202,6 +202,7 @@ class SsePlugin(plugins.SingletonPlugin):
     def get_actions(self):
         return {
             "package_create": action.package_create,
+            "dashboard_activity_list": action.dashboard_activity_list,
             "package_collaborator_create": action.package_collaborator_create,
             "package_collaborator_delete": action.package_collaborator_delete,
             "request_access_to_dataset": action.request_access_to_dataset,

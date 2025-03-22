@@ -60,6 +60,17 @@ def package_create(up_func, context, data_dict):
     result = up_func(context, data_dict)
     return result
 
+@tk.chained_action
+def dashboard_activity_list(up_func, context, data_dict):
+    result = up_func(context, data_dict)
+    show_diff_message = data_dict.get('show_diff_message', False)
+    if show_diff_message:
+        activity_diff_action = tk.get_action('activity_diff')
+        for x in result:
+            diff = activity_diff_action(context, {'id': x.get('id')})
+            x['diff'] = diff
+    return result
+
 
 @tk.chained_action
 def package_collaborator_create(up_func, context, data_dict):

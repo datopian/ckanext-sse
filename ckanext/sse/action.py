@@ -147,7 +147,7 @@ def request_access_to_dataset(context, data_dict):
     if user.get('sysadmin'):
         return already_have_access_error
 
-    if not any(user.get('email').lower().endswith("@" + domain) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().split(',')):
+    if not any(user.get('email').lower().endswith("@" + domain.strip()) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().split(',')):
         return {
             'success': False,
             'errors': {'validation': [_('You are not allowed to request access to this dataset')]},

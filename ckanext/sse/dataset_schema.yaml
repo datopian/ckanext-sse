@@ -115,7 +115,6 @@ dataset_fields:
   # NOTE: options must exist in
   # http://publications.europa.eu/resource/authority/frequency
   - field_name: frequency
-    required: true
     label: Update frequency
     preset: select
     choices:

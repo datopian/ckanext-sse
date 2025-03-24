@@ -60,16 +60,21 @@ def package_create(up_func, context, data_dict):
     result = up_func(context, data_dict)
     return result
 
+
+@tk.side_effect_free
 @tk.chained_action
 def dashboard_activity_list(up_func, context, data_dict):
-    result = up_func(context, data_dict)
+    data_dict['offset'] = None
+    data_dict['limit'] = None
+    activities = up_func(context, data_dict)
     show_diff_message = data_dict.get('show_diff_message', False)
     if show_diff_message:
         activity_diff_action = tk.get_action('activity_diff')
-        for x in result:
-            diff = activity_diff_action(context, {'id': x.get('id')})
-            x['diff'] = diff
-    return result
+        for activity in activities:
+            diff = activity_diff_action(
+                context, {'id': activity.get('id'), 'object_type': next(iter(activity))})
+            activity['diff'] = diff
+    return activities
 
 
 @tk.chained_action
@@ -132,7 +137,7 @@ def request_access_to_dataset(context, data_dict):
     if toolkit.current_user.is_anonymous:
         raise NotAuthorized
     user = toolkit.get_action('user_show')(
-        {'user': os.environ.get('CKAN_SYSADMIN_NAME')}, {'id': toolkit.current_user.id})
+        {'ignore_auth': True, 'keep_email': True}, {'id': toolkit.current_user.id})
 
     already_have_access_error = {
         'success': False,
@@ -141,6 +146,12 @@ def request_access_to_dataset(context, data_dict):
 
     if user.get('sysadmin'):
         return already_have_access_error
+
+    if not any(user.get('email').lower().endswith("@" + domain) for domain in os.environ.get('allowed_domains', '').lower().split(',')):
+        return {
+            'success': False,
+            'errors': {'validation': [_('You are not allowed to request access to this dataset')]},
+        }
 
     pkg = None
 
@@ -487,6 +498,7 @@ def user_extras(context, data_dict):
     result = {}
     result["is_verified_user"] = False
     if ssen_plugin_extras and "is_verified_user" in ssen_plugin_extras:
-        result["is_verified_user"] = asbool(ssen_plugin_extras["is_verified_user"])
+        result["is_verified_user"] = asbool(
+            ssen_plugin_extras["is_verified_user"])
 
     return result

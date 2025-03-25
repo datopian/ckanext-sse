@@ -117,6 +117,7 @@ dataset_fields:
   - field_name: frequency
     label: Update frequency
     preset: select
+    hide_none: True
     choices:
       - value: as_needed
         label: As Needed

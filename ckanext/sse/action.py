@@ -22,6 +22,7 @@ import ckan.plugins.toolkit as toolkit
 from .logic import mail_allowed_user, send_request_mail_to_org_admins, mail_rejected_user
 from .schemas import package_request_access_schema
 import ckan.model as model
+import ckanext.activity.helpers as helpers
 
 DataError = dictization_functions.DataError
 unflatten = dictization_functions.unflatten
@@ -62,19 +63,25 @@ def package_create(up_func, context, data_dict):
 
 
 @tk.side_effect_free
-@tk.chained_action
-def dashboard_activity_list(up_func, context, data_dict):
+def resource_activity_list(context, data_dict):
     data_dict['offset'] = None
     data_dict['limit'] = None
-    activities = up_func(context, data_dict)
-    show_diff_message = data_dict.get('show_diff_message', False)
-    if show_diff_message:
-        activity_diff_action = tk.get_action('activity_diff')
-        for activity in activities:
+    dashboard_activity_list_action = tk.get_action('dashboard_activity_list')
+    activities = dashboard_activity_list_action(context, data_dict)
+    activity_diff_action = tk.get_action('activity_diff')
+    response = []
+    for activity in activities:
+        if not activity.get('data') or not activity.get('data').get('package'):
+            continue
+        try:
             diff = activity_diff_action(
-                context, {'id': activity.get('id'), 'object_type': next(iter(activity))})
-            activity['diff'] = diff
-    return activities
+                context, {'id': activity.get('id'), 'object_type': next(iter(activity.get('data')))})
+            activity['diff'] = helpers.compare_pkg_dicts(
+                diff.get('activities')[0].get('data').get('package'), diff.get('activities')[1].get('data').get('package'), diff.get('activities')[0].get('id'))
+            response.append(activity)
+        except Exception as e:
+            log.error(e)
+    return response
 
 
 @tk.chained_action

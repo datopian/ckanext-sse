@@ -64,7 +64,7 @@ def package_create(up_func, context, data_dict):
 
 @tk.side_effect_free
 def resource_activity_list(context, data_dict):
-    data_dict['offset'] = 99999999
+    data_dict['offset'] = None
     data_dict['limit'] = 99999999
     dashboard_activity_list_action = tk.get_action('dashboard_activity_list')
     activities = dashboard_activity_list_action(context, data_dict)

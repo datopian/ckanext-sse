@@ -327,8 +327,8 @@ def _transform_package_show(package_dict, frequencies, context):
             package_dict['has_access_to_resources'] = False
         else:
             is_sysadmin = user.sysadmin
-            is_email_on_the_allowed_domains = any(user.get('email').lower().endswith(
-                "@" + domain.strip()) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().split(','))
+            is_email_on_the_allowed_domains = any(user.email.lower().endswith(
+                "@" + domain.strip()) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().strip().split(','))
             belong_to_the_dataset_org = is_user_id_present_in_the_dict_list(user.id, toolkit.get_action('organization_show')({'ignore_auth': True}, {
                 'id': package_dict.get('organization').get('id')}).get('users'))
             is_already_allowed_to_see_the_dataset = is_user_id_present_in_the_dict_list(user.id, tk.get_action('package_collaborator_list')(

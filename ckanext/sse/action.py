@@ -151,14 +151,8 @@ def request_access_to_dataset(context, data_dict):
         'errors': {'validation': [_('You already have access to the dataset\'s resources')]},
     }
 
-    if user.get('sysadmin'):
+    if user.get('sysadmin') or any(user.get('email').lower().endswith("@" + domain.strip()) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().split(',')):
         return already_have_access_error
-
-    if not any(user.get('email').lower().endswith("@" + domain.strip()) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().split(',')):
-        return {
-            'success': False,
-            'errors': {'validation': [_('You are not allowed to request access to this dataset')]},
-        }
 
     pkg = None
 
@@ -329,12 +323,19 @@ def _transform_package_show(package_dict, frequencies, context):
     package_dict['has_access_to_resources'] = True
 
     if package_dict.get('is_restricted'):
-        if not user or user.is_anonymous or (not user.sysadmin
-                                             and not is_user_id_present_in_the_dict_list(user.id, toolkit.get_action('organization_show')({'ignore_auth': True}, {
-                                                 'id': package_dict.get('organization').get('id')}).get('users'))
-                                             and not is_user_id_present_in_the_dict_list(user.id, tk.get_action('package_collaborator_list')(
-                                                 {'ignore_auth': True}, {'id': package_dict.get('id')}))):
+        if not user or user.is_anonymous:
             package_dict['has_access_to_resources'] = False
+        else:
+            is_sysadmin = user.sysadmin
+            is_email_on_the_allowed_domains = any(user.get('email').lower().endswith(
+                "@" + domain.strip()) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().split(','))
+            belong_to_the_dataset_org = is_user_id_present_in_the_dict_list(user.id, toolkit.get_action('organization_show')({'ignore_auth': True}, {
+                'id': package_dict.get('organization').get('id')}).get('users'))
+            is_already_allowed_to_see_the_dataset = is_user_id_present_in_the_dict_list(user.id, tk.get_action('package_collaborator_list')(
+                {'ignore_auth': True}, {'id': package_dict.get('id')}))
+
+            if not is_sysadmin and not is_email_on_the_allowed_domains and not belong_to_the_dataset_org and not is_already_allowed_to_see_the_dataset:
+                package_dict['has_access_to_resources'] = False
 
     if not package_dict['has_access_to_resources']:
         package_dict['resources'] = hide_resources_field(

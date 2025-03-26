@@ -76,13 +76,13 @@ def resource_activity_list(context, data_dict):
         try:
             diff = activity_diff_action(
                 context, {'id': activity.get('id'), 'object_type': next(iter(activity.get('data')))})
-            activity['diff'] = helpers.compare_pkg_dicts(
-                diff.get('activities')[0].get('data').get('package'), diff.get('activities')[1].get('data').get('package'), diff.get('activities')[0].get('id'))
-            response.append(activity)
+            activity['diff'] = [x for x in helpers.compare_pkg_dicts(
+                diff.get('activities')[0].get('data').get('package'), diff.get('activities')[1].get('data').get('package'), diff.get('activities')[0].get('id')) if "resource" in x.get("type")]
+            if len(activity["diff"]):
+                response.append(activity)
         except Exception as e:
             log.error(e)
     return response
-
 
 @tk.chained_action
 def package_collaborator_create(up_func, context, data_dict):

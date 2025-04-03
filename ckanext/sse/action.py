@@ -84,6 +84,7 @@ def resource_activity_list(context, data_dict):
             log.error(e)
     return response
 
+
 @tk.chained_action
 def package_collaborator_create(up_func, context, data_dict):
     result = up_func(context, data_dict)
@@ -387,6 +388,18 @@ def user_login(context, data_dict):
                 },
             )
         else:
+            if user.state == 'pending':
+                user.state = 'active'
+                session.add(user)
+                session.commit()
+            elif user.state == 'deleted':
+                error = {
+                    'errors': {'auth': [_('Unable to authenticate user')]},
+                    'error_summary': {_('auth'): _(f"User account has been deleted. If you believe this was done in error, please contact support at {os.environ.get('CKANEXT__SSE__ADMINS_EMAIL', 'support@datopian.com')} for assistance.")},
+                }
+
+                log.error(error)
+                return error
             user = user.as_dict()
 
         return _generate_token(context, user)

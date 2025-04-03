@@ -128,10 +128,10 @@ dataset_fields:
         expiration: { "days": 365 }
       - value: biannually
         label: Biannually
-        expiration: { "days": 365 / 2 }
+        expiration: { "days": 182.5 } # This values is from 365 days / 2
       - value: quarterly
         label: Quarterly
-        expiration: { "days": 365 / 4 }
+        expiration: { "days": 91.25 } # This values is from 365 days / 4
       - value: monthly
         label: Monthly
         expiration: { "days": 30 }

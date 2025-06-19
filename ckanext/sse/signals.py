@@ -24,12 +24,13 @@ def on_datastore_updated(sender, **kwargs):
     context = kwargs.get("context")
     data_dict = kwargs.get("data_dict")
     model = context['model']
-    resource = model.Resource.get(data_dict['resource_id'])
+    resource_id = data_dict.get("resource_id", data_dict.get("id"))
+    resource = model.Resource.get(resource_id)
     assert resource
     flag = datetime.datetime.utcnow().isoformat()
 
     model.Session.query(model.Resource).filter(
-        model.Resource.id == data_dict['resource_id']
+        model.Resource.id == resource_id
     ).update(
         {
             'extras': func.jsonb_set(
@@ -58,7 +59,7 @@ def on_datastore_updated(sender, **kwargs):
         'id': resource.package_id
     })
     for resource in _data_dict['resources']:
-        if resource['id'] == data_dict['resource_id']:
+        if resource['id'] == resource_id:
             resource['last_datastore_modified'] = flag
             psi.index_package(_data_dict)
             break

@@ -1,12 +1,12 @@
 {% if pkg and pkg.state == 'active' %}
-  <div class="data-reuse-section p-4">
+  <div class="data-reuse-section p-3">
     <h3>{{ _('Share Your Experience') }}</h3>
     <p>{{ _('Have you used this dataset? Share your experience to help others understand its value and potential applications.') }}</p>
     
     <div class="data-reuse-actions">
       <a href="{{ h.url_for('data_reuse.submit_form', package_id=pkg.id) }}" 
          class="btn btn-primary mb-2">  
-        <i class="fa fa-edit"></i> {{ _('Share Usage Information') }}
+        <i class="fa fa-edit"></i> {{ _('Share Resuse Information') }}
       </a>
       
       {% if h.check_access('data_reuse_list') %}

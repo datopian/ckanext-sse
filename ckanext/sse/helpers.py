@@ -23,9 +23,9 @@ def get_data_reuse_field_labels():
         'showcase_permission': toolkit._('Are you happy for us to link to your re-use on our showcases section?'),
         'showcase_permission_other': toolkit._('Other Permission Details'),
         'additional_information': toolkit._('Is there anything else you would like to inform us about with your submission?'),
-        'contact_permission': toolkit._('Would you like us to contact you for further discussion?'),
+        'contact_permission': toolkit._('Are you happy for us to contact you about this request or feedback?'),
         'submitted_at': toolkit._('Submitted'),
-        'dataset': toolkit._('Dataset'),
+        'dataset': toolkit._('What Data Asset are you providing a Data Re-Use submission on? '),
     }
 
 def is_org_admin_by_package_id(pkg_name):

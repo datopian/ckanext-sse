@@ -10,8 +10,8 @@ sse-js:
     preload:
       - base/main
 
-# sse-css:
-#   filter: cssrewrite
-#   output: ckanext-sse/%(version)s-sse.css
-#   contents:
-#     - css/sse.css
+sse-css:
+  filter: cssrewrite
+  output: ckanext-sse/%(version)s-sse.css
+  contents:
+    - style.css

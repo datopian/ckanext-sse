@@ -5,3 +5,7 @@
     {{ super() }}
 {% endblock %}
 
+{% block styles %}
+    {{ super() }}
+    {% asset 'sse/sse-css' %}
+{% endblock %}

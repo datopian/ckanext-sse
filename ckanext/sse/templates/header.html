@@ -1,4 +1,21 @@
 {% ckan_extends %}
+{% block header_account_logged %}
+  {% if c.userobj.sysadmin %}
+    <li class="nav-item dropdown">
+      <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false">
+        <i class="fa fa-gavel" aria-hidden="true" ></i>
+      </a>
+      <ul class="dropdown-menu sysadmin-dropdown">
+        <li><a class="dropdown-item" href="{{ h.url_for('admin.index') }}">{{ _('Admin Dashboard') }}</a></li>
+        <li><a class="dropdown-item" href="{{ h.url_for('data_reuse.list_submissions') }}">{{ _('Dataset Reuse') }}</a></li>
+      </ul>
+    </li>
+  {% endif %}
+  {% block header_account_profile %} {{ super() }}   {% endblock %}
+  {% block header_dashboard %} {{ super() }} {% endblock %}
+  {% block header_account_settings_link %} {{ super() }} {% endblock %}
+  {% block header_account_log_out_link %} {{ super() }} {% endblock %}
+{% endblock %}
 
 {% block header_site_navigation_tabs %}
   {% set org_type = h.default_group_type('organization') %}
@@ -12,7 +29,6 @@
     (group_type ~ '.index',
       h.humanize_entity_type('group', group_type, 'main nav') or _('Groups'), ['group']),
     ('user_group' ~ '.index', ('User Groups'), ['user_group']),
-    ('showcase_blueprint.index', _('Showcases')),
     ('home.about', _('About'))) 
   }}
   {% else %}
@@ -23,7 +39,6 @@
     (group_type ~ '.index',
       h.humanize_entity_type('group', group_type, 'main nav') or _('Groups'), ['group']),
     ('user_group' ~ '.index', ('User Groups'), ['user_group']),
-    ('showcase_blueprint.index', _('Showcases')),
     ('home.about', _('About'))) 
   }}
   {% endif %}

@@ -4,6 +4,30 @@ from logging import getLogger
 
 log = getLogger(__name__)
 
+def get_data_reuse_field_labels():
+    """
+    Returns a dictionary mapping field names to their corresponding labels/questions
+    for the data reuse form. This allows dynamic label management.
+    """
+    return {
+        'full_name': toolkit._('Enter your Full Name (optional)'),
+        'organisation_name': toolkit._('Organisation Name (optional)'),
+        'job_title': toolkit._('Job Title (optional)'),
+        'email_address': toolkit._('Email Address'),
+        'title': toolkit._('Title'),
+        'label': toolkit._('Category'),
+        'organisation_type': toolkit._('Organisation Type'),
+        'submission_type': toolkit._('Are you providing an example of how you have used our data or sharing an idea for how the data could be used?'),
+        'usage_example': toolkit._('Please tell us how you are using our data'),
+        'usage_idea': toolkit._('Do you have any ideas on how this data could be used?'),
+        'showcase_permission': toolkit._('Are you happy for us to link to your re-use on our showcases section?'),
+        'showcase_permission_other': toolkit._('Other Permission Details'),
+        'additional_information': toolkit._('Is there anything else you would like to inform us about with your submission?'),
+        'contact_permission': toolkit._('Would you like us to contact you for further discussion?'),
+        'submitted_at': toolkit._('Submitted'),
+        'dataset': toolkit._('Dataset'),
+    }
+
 def is_org_admin_by_package_id(pkg_name):
     if not pkg_name or toolkit.current_user.is_anonymous:
         return False

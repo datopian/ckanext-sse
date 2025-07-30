@@ -5,12 +5,16 @@ import ckan.authz
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 import logging
-from ckanext.sse import action
+from ckanext.sse import action, auth
 import ckan.authz
-from ckanext.sse.blueprints import dataset, request_access_dashboard, admin
-from .model import PackageAccessRequest
+from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
+from .model import PackageAccessRequest, FormResponse
 import ckanext.sse.activity as activity
-from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
+from ckanext.sse.helpers import (
+    is_org_admin_by_package_id, 
+    is_admin_of_any_org,
+    get_data_reuse_field_labels
+)
 from ckan import logic, model, plugins
 from .utils import update_resource_extra
 import ckanext.sse.signals as signals
@@ -32,6 +36,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IValidators)
     plugins.implements(plugins.ITemplateHelpers)
     plugins.implements(plugins.IActions)
+    plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IPackageController, inherit=True)
     plugins.implements(plugins.IConfigurable, inherit=True)
     plugins.implements(plugins.IBlueprint)
@@ -66,10 +71,16 @@ class SsePlugin(plugins.SingletonPlugin):
         from ckan.model import meta
         if not PackageAccessRequest.__table__.exists(meta.engine):
             PackageAccessRequest.__table__.create(meta.engine)
+        if not FormResponse.__table__.exists(meta.engine):
+            FormResponse.__table__.create(meta.engine)
 
     # ITemplateHelpers
     def get_helpers(self):
-        return {'is_org_admin_by_package_id': is_org_admin_by_package_id, 'is_admin_of_any_org': is_admin_of_any_org}
+        return {
+            'is_org_admin_by_package_id': is_org_admin_by_package_id, 
+            'is_admin_of_any_org': is_admin_of_any_org,
+            'get_data_reuse_field_labels': get_data_reuse_field_labels,
+        }
 
     # IPermissionLabels
     def get_user_dataset_labels(self, user_obj: model.User) -> list[str]:
@@ -109,7 +120,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IBlueprint
     def get_blueprint(self):
-        return [dataset.blueprint, *request_access_dashboard.get_blueprints(), admin.blueprint]
+        return [dataset.blueprint, *request_access_dashboard.get_blueprints(), admin.blueprint, data_reuse.blueprint]
 
     # IConfigurer
     def update_config(self, config_):
@@ -217,7 +228,22 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
-            "user_extras": action.user_extras
+            "user_extras": action.user_extras,
+            "data_reuse_create": action.data_reuse_create,
+            "data_reuse_list": action.data_reuse_list,
+            "data_reuse_show": action.data_reuse_show,
+            "data_reuse_update": action.data_reuse_update,
+            "data_reuse_delete": action.data_reuse_delete
+        }
+
+    # IAuthFunctions
+    def get_auth_functions(self):
+        return {
+            "data_reuse_create": auth.data_reuse_create,
+            "data_reuse_list": auth.data_reuse_list,
+            "data_reuse_show": auth.data_reuse_show,
+            "data_reuse_update": auth.data_reuse_update,
+            "data_reuse_delete": auth.data_reuse_delete
         }
 
     # ISignal

@@ -1,0 +1,204 @@
+{% extends "page.html" %}
+
+{% block subtitle %}{{ _('Dataset Reuse') }}{% endblock %}
+
+{% block breadcrumb_content %}
+<li class="active"> {{ _('Dataset Reuse') }}</li>
+{% endblock %}
+
+{% block primary_content %}
+<article class="module">
+  <div class="module-content">
+    <h1 class="page-heading">
+      {% block page_heading %}{{ _('Dataset Reuse Submissions') }}{% endblock %}
+    </h1>
+
+    <div class="bg-light rounded mb-4">
+      <form method="get" class="row g-3 align-items-end">
+        <fieldset class="col-12">
+
+          <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+              <label for="submission_type" class="form-label">{{ _('Submission Type') }}</label>
+              <select id="submission_type" name="submission_type" class="form-select">
+                <option value="">{{ _('All Types') }}</option>
+                {% for type in submission_types %}
+                <option value="{{ type }}" {% if submission_type==type %} selected{% endif %}>{{ type }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <button type="submit" class="btn btn-primary me-2">{{ _('Apply Filter') }}</button>
+              <a href="{{ h.url_for('data_reuse.list_submissions') }}" class="btn btn-outline-secondary">{{ _('Clear
+                Filter') }}</a>
+            </div>
+
+            <div class="col-md-4 text-end">
+              <span class="badge bg-secondary fs-6">
+                <strong>{{ _('Total:') }}</strong> {{ total_count }}
+              </span>
+            </div>
+          </div>
+        </fieldset>
+      </form>
+    </div>
+
+    <!-- Results -->
+    {% if submissions %}
+    <div class="submissions-list">
+      <table class="table table-striped table-bordered">
+        <thead>
+          <tr>
+            <th>{{ _('Title') }}</th>
+            <th>{{ _('Type') }}</th>
+            <th>{{ _('Dataset') }}</th>
+            <th>{{ _('Submitted') }}</th>
+            <th>{{ _('Actions') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for submission in submissions %}
+          <tr>
+            <td>
+              <strong>{{ submission.data.title or _('Untitled') }}</strong>
+              {% if submission.full_name %}
+              <br><small>{{ _('by') }} {{ submission.full_name }}</small>
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge bg-{% if submission.submission_type == 'Example' %}success{% else %}info{% endif %}">
+                {{ submission.data.submission_type }}
+              </span>
+            </td>
+            <td>
+              {% if submission.package_id %}
+              {% set package_name = package_names.get(submission.package_id, 'Unknown Dataset') %}
+              <a href="{{ h.url_for('dataset.read', id=submission.package_id) }}">
+                {{ package_name }}
+              </a>
+              {% else %}
+              {{ _('No dataset') }}
+              {% endif %}
+            </td>
+            <td>
+              {% if submission.submitted_at %}
+              {{ h.time_ago_from_timestamp(submission.submitted_at) }}
+              {% else %}
+              {{ _('Unknown') }}
+              {% endif %}
+            </td>
+            <td>
+              <div class="btn-group" role="group">
+                <a href="{{ h.url_for('data_reuse.view_submission', submission_id=submission.id) }}"
+                  class="btn btn-primary btn-sm me-2">
+                  <i class="fa fa-eye"></i> {{ _('View') }}
+                </a>
+                {% if h.check_access('data_reuse_delete', {'id': submission.id}) %}
+                <form method="post"
+                  action="{{ h.url_for('data_reuse.delete_submission', submission_id=submission.id) }}"
+                  style="display: inline;" class="delete-form">
+                  <a href="{{ h.url_for('data_reuse.delete_submission', submission_id=submission.id) }}"
+                    class="btn btn-danger btn-sm" data-module="confirm-action" *
+                    data-module-content="{{ _('Are you sure?') }}">
+                    <i class="fa fa-trash"></i> {{ _('Delete') }}
+                  </a>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="pagination-wrapper">
+      <nav aria-label="Submissions pagination">
+        <ul class="pagination">
+          {% if page > 1 %}
+          <li class="page-item">
+            <a class="page-link"
+              href="{{ h.url_for('data_reuse.list_submissions', page=page-1, submission_type=submission_type) }}">{{
+              _('« Previous') }}</a>
+          </li>
+          {% endif %}
+
+          {% for p in range(1, total_pages + 1) %}
+          {% if p == page %}
+          <li class="page-item active" aria-current="page">
+            <span class="page-link">{{ p }}</span>
+          </li>
+          {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %} <li class="page-item">
+            <a class="page-link"
+              href="{{ h.url_for('data_reuse.list_submissions', page=p, submission_type=submission_type) }}">{{ p }}</a>
+            </li>
+            {% elif p == page - 3 or p == page + 3 %}
+            <li class="page-item disabled">
+              <span class="page-link">...</span>
+            </li>
+            {% endif %}
+            {% endfor %}
+
+            {% if page < total_pages %} <li class="page-item">
+              <a class="page-link"
+                href="{{ h.url_for('data_reuse.list_submissions', page=page+1, submission_type=submission_type) }}">{{
+                _('Next »') }}</a>
+              </li>
+              {% endif %}
+        </ul>
+      </nav>
+
+      <div class="pagination-info">
+        {{ _('Showing {start} to {end} of {total} submissions').format(
+        start=(page-1)*limit + 1,
+        end=page*limit if page*limit < total_count else total_count, total=total_count ) }} </div>
+      </div>
+      {% endif %}
+
+      {% else %}
+      <div class="empty">
+        <p class="empty-message">{{ _('No submissions found.') }}</p>
+        {% if submission_type %}
+        <p>{{ _('Try adjusting your filter or') }} <a href="{{ h.url_for('data_reuse.list_submissions') }}">{{ _('view
+            all submissions') }}</a>.</p>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+</article>
+{% endblock %}
+
+{% block secondary_content %}
+<aside class="module module-narrow module-shallow">
+  <h2 class="module-heading">
+    <i class="fa fa-info-circle"></i>
+    {{ _('About Data Reuse') }}
+  </h2>
+  <div class="module-content">
+    <p class="small">{{ _('This section shows how our datasets are being used by the community.') }}</p>
+    
+    <h3 class="h6">{{ _('Submission Types') }}</h3>
+    <dl>
+      <dt><span class="badge bg-success">{{ _('Example') }}</span></dt>
+      <dd class="small">{{ _('Real-world applications where the data has been successfully used.') }}</dd>
+      
+      <dt><span class="badge bg-info">{{ _('Idea') }}</span></dt>
+      <dd class="small">{{ _('Suggestions for potential uses of the data.') }}</dd>
+    </dl>
+
+    <h3 class="h6">{{ _('Statistics') }}</h3>
+    <div class="card text-center">
+      <div class="card-body py-3">
+        <h5 class="card-title text-primary mb-1">{{ total_count }}</h5>
+        <p class="card-text small text-muted mb-0">{{ _('Total Submissions') }}</p>
+      </div>
+    </div>
+  
+  </div>
+</aside>
+
+
+{% endblock %}

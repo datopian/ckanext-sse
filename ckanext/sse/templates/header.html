@@ -29,6 +29,7 @@
     (group_type ~ '.index',
       h.humanize_entity_type('group', group_type, 'main nav') or _('Groups'), ['group']),
     ('user_group' ~ '.index', ('User Groups'), ['user_group']),
+    ('showcase_blueprint.index', _('Showcases')),
     ('home.about', _('About'))) 
   }}
   {% else %}
@@ -39,6 +40,7 @@
     (group_type ~ '.index',
       h.humanize_entity_type('group', group_type, 'main nav') or _('Groups'), ['group']),
     ('user_group' ~ '.index', ('User Groups'), ['user_group']),
+    ('showcase_blueprint.index', _('Showcases')),
     ('home.about', _('About'))) 
   }}
   {% endif %}

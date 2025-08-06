@@ -7,7 +7,7 @@
       </a>
       <ul class="dropdown-menu sysadmin-dropdown">
         <li><a class="dropdown-item" href="{{ h.url_for('admin.index') }}">{{ _('Admin Dashboard') }}</a></li>
-        <li><a class="dropdown-item" href="{{ h.url_for('data_reuse.list_submissions') }}">{{ _('Dataset Reuse') }}</a></li>
+        <li><a class="dropdown-item" href="{{ h.url_for('data_reuse.list_data_reuse') }}">{{ _('Reuse or Idea') }}</a></li>
       </ul>
     </li>
   {% endif %}
@@ -29,7 +29,6 @@
     (group_type ~ '.index',
       h.humanize_entity_type('group', group_type, 'main nav') or _('Groups'), ['group']),
     ('user_group' ~ '.index', ('User Groups'), ['user_group']),
-    ('showcase_blueprint.index', _('Showcases')),
     ('home.about', _('About'))) 
   }}
   {% else %}
@@ -40,7 +39,6 @@
     (group_type ~ '.index',
       h.humanize_entity_type('group', group_type, 'main nav') or _('Groups'), ['group']),
     ('user_group' ~ '.index', ('User Groups'), ['user_group']),
-    ('showcase_blueprint.index', _('Showcases')),
     ('home.about', _('About'))) 
   }}
   {% endif %}

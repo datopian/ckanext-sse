@@ -6,3 +6,56 @@
 .sysadmin-dropdown li {
   float: none !important;
 }
+
+/* Form Section Styling */
+.reuse-form-section {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  border: 1px solid #e1e8ed;
+  border-radius: 8px;
+  background-color: #fafbfc;
+}
+
+.reuse-form-section:last-of-type {
+  margin-bottom: 1rem;
+}
+
+.reuse-form-section .section-heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #3498db;
+  display: flex;
+  align-items: center;
+}
+
+.reuse-form-section .section-heading::before {
+  content: '';
+  width: 4px;
+  height: 20px;
+  background-color: #3498db;
+  margin-right: 0.75rem;
+  border-radius: 2px;
+}
+
+.reuse-form-section .section-content {
+  padding-left: 1rem;
+}
+
+.reuse-form-section .section-content .control-group {
+  margin-bottom: 1.25rem;
+}
+
+.reuse-form-section .section-content .control-group:last-child {
+  margin-bottom: 0;
+}
+
+/* Preserve paragraph spacing in textarea elements */
+textarea.form-control {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  min-height: 120px;
+  line-height: 1.5;
+}

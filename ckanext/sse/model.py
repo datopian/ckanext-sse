@@ -197,7 +197,7 @@ class FormResponse(DomainObject.DomainObject, tk.BaseModel):
     @classmethod
     def get_all(cls):
         """Get all FormResponses"""
-        return Session.query(cls).all()
+        return Session.query(cls).order_by(cls.submitted_at.desc()).all()
 
     @classmethod
     def get_by_form_type(cls, form_type):

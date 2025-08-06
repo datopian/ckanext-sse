@@ -19,7 +19,12 @@ def package_request_access_schema(not_empty):
 def choice_validator(choices):
     """Custom validator for choice fields"""
     def validator(value, context):
-        if value not in choices:
+        if value is None:
+            return value
+        value_lower = value.lower() if isinstance(value, str) else value
+        choices_lower = [choice.lower() if isinstance(choice, str) else choice for choice in choices]
+        
+        if value_lower not in choices_lower:
             raise df.Invalid(f'Value must be one of: {", ".join(choices)}')
         return value
     return validator
@@ -35,25 +40,27 @@ def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, 
         'Energy Utility', 'Government', 'Innovator', 'Local Authority', 
         'Regulator', 'Technology', 'Other'
     ]
-    submission_type_choices = ['Example', 'Idea']  # Renamed from usage_type
+    reuse_type_choices = ['Example', 'Idea']  # Renamed from usage_type
     showcase_permission_choices = ['Yes', 'No', 'Others']
     
     schema = {
+        "full_name": [ignore_missing, unicode_safe],
         "email_address": [not_empty, email_validator],
+        "organisation_name": [ignore_missing, unicode_safe],
+        "organisation_type": [not_empty, choice_validator(organisation_type_choices)],
+        "job_title": [ignore_missing, unicode_safe],
         "title": [not_empty, unicode_safe],
         "label": [not_empty, choice_validator(label_choices)],
-        "organisation_type": [not_empty, choice_validator(organisation_type_choices)],
         "package_id": [not_empty, unicode_safe, package_id_exists],
-        "submission_type": [not_empty, choice_validator(submission_type_choices)],
+        "reuse_type": [not_empty, choice_validator(reuse_type_choices)],
+        "description": [ignore_missing, unicode_safe], 
         "showcase_permission": [not_empty, choice_validator(showcase_permission_choices)],
-        "job_title": [ignore_missing, unicode_safe],
-        "full_name": [ignore_missing, unicode_safe],
-        "organisation_name": [ignore_missing, unicode_safe],
-        "usage_example": [ignore_missing, unicode_safe], 
-        "usage_idea": [ignore_missing, unicode_safe], 
         "showcase_permission_other": [ignore_missing, unicode_safe],
         "additional_information": [ignore_missing, unicode_safe],
         "contact_permission": [ignore_missing, boolean_validator],
+        'image_url': [ignore_missing, unicode_safe],
+        'image_upload': [ignore_missing],
+        'image_display_url': [ignore_missing, unicode_safe],
         "user_id": [ignore_missing, unicode_safe],
         "id": [ignore_missing, unicode_safe], 
     }

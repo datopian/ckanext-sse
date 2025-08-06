@@ -4,6 +4,8 @@ from typing import cast
 import ckan.lib.base as base
 import ckan.logic as logic
 import ckan.model as model
+import ckan.lib.navl.dictization_functions as dict_fns
+
 from ckan.lib.helpers import helper_functions as h
 from ckan.types import Context
 from flask import Blueprint, redirect, url_for
@@ -27,8 +29,11 @@ def _get_context():
     )
 
 
-@blueprint.route("/submit/<package_id>", methods=["GET", "POST"])
-def submit_form(package_id):
+@blueprint.route("/<reuse_type>/submit/<package_id>", methods=["GET", "POST"])
+def submit_data_reuse(
+    reuse_type,
+    package_id,
+):
     """Submit a data reuse form for a specific dataset"""
     context = _get_context()
 
@@ -39,33 +44,42 @@ def submit_form(package_id):
         return base.abort(404, tk._("Dataset not found"))
     except logic.NotAuthorized:
         return base.abort(403, tk._("Not authorized to view this dataset"))
-
     if tk.request.method == "POST":
         try:
             # Get form data
-            form_data = dict(tk.request.form)
+            form_data = logic.clean_dict(
+                dict_fns.unflatten(logic.tuplize_dict(logic.parse_params(tk.request.form)))
+            )
+            form_data.update(
+                logic.clean_dict(
+                    dict_fns.unflatten(
+                        logic.tuplize_dict(logic.parse_params(tk.request.files))
+                    )
+                )
+            )
+
             form_data["package_id"] = package_id
 
             # Add user_id if user is logged in
             if tk.current_user:
                 form_data["user_id"] = tk.current_user.id
 
+            form_data["reuse_type"] = reuse_type
+
             # Create the data reuse submission
             result = tk.get_action("data_reuse_create")(context, form_data)
 
-            h.flash_success(
-                tk._(
-                    "Thank you for your submission! Your {} has been recorded.".format(
-                        form_data.get("submission_type", "submission").lower()
-                    )
-                )
-            )
-
-            return redirect(url_for("dataset.read", id=package_id))
+            # Render success page directly
+            extra_vars = {
+                "package": package,
+                "reuse_type": reuse_type,
+                "submission_title": form_data.get("title", ""),
+            }
+            return base.render("data_reuse/submission_success.html", extra_vars=extra_vars)
 
         except logic.ValidationError as e:
             errors = e.error_dict
-            h.flash_error(tk._("Please correct the errors below"))
+            h.flash_error(tk._("Please correct the errors below", errors))
         except logic.NotAuthorized:
             return base.abort(403, tk._("Not authorized to submit data reuse form"))
         except Exception as e:
@@ -80,7 +94,7 @@ def submit_form(package_id):
 
     # Get choices for dropdowns - format for CKAN form macros
     label_choices = [
-        {"value": "", "text": tk._("Select a category")},
+        {"value": "", "text": tk._("Select a label")},
         {"value": "Community Support", "text": tk._("Community Support")},
         {"value": "Research Innovation", "text": tk._("Research Innovation")},
         {"value": "Sustainability", "text": tk._("Sustainability")},
@@ -99,11 +113,7 @@ def submit_form(package_id):
         {"value": "Technology", "text": tk._("Technology")},
         {"value": "Other", "text": tk._("Other")},
     ]
-    submission_type_choices = [
-        {"value": "", "text": tk._("Select submission type")},
-        {"value": "Example", "text": tk._("Example")},
-        {"value": "Idea", "text": tk._("Idea")},
-    ]
+ 
     showcase_permission_choices = [
         {"value": "", "text": tk._("Select permission")},
         {"value": "Yes", "text": tk._("Yes")},
@@ -117,12 +127,12 @@ def submit_form(package_id):
     ]
 
     extra_vars = {
+        "reuse_type": reuse_type,
         "package": package,
         "data": form_data,
         "errors": errors,
         "label_choices": label_choices,
         "organisation_type_choices": organisation_type_choices,
-        "submission_type_choices": submission_type_choices,
         "showcase_permission_choices": showcase_permission_choices,
         "contact_permission_choices": contact_permission_choices,
     }
@@ -131,7 +141,7 @@ def submit_form(package_id):
 
 
 @blueprint.route("/list")
-def list_submissions():
+def list_data_reuse():
     """List all data reuse submissions with filtering by submission type"""
     context = _get_context()
 
@@ -141,7 +151,7 @@ def list_submissions():
         return base.abort(403, tk._("Not authorized to view data reuse submissions"))
 
     # Get query parameters for filtering
-    submission_type = tk.request.args.get("submission_type", "")
+    reuse_type = tk.request.args.get("reuse_type", "")
     page = int(tk.request.args.get("page", 1))
     limit = int(tk.request.args.get("limit", 20))
 
@@ -150,8 +160,8 @@ def list_submissions():
 
     # Build filter parameters - only submission_type filter
     filter_params = {}
-    if submission_type:
-        filter_params["submission_type"] = submission_type
+    if reuse_type:
+        filter_params["reuse_type"] = reuse_type
 
     filter_params["offset"] = offset
     filter_params["limit"] = limit
@@ -214,8 +224,8 @@ def list_submissions():
             "page": page,
             "limit": limit,
             "total_pages": total_pages,
-            "submission_type": submission_type,
-            "submission_types": submission_types,
+            "reuse_type": reuse_type,
+            "reuse_type_options": ["example", "idea"],
             "package_names": package_names,
         }
 
@@ -232,15 +242,15 @@ def list_submissions():
                 "page": page,
                 "limit": limit,
                 "total_pages": 0,
-                "submission_type": submission_type,
-                "submission_types": ["Example", "Idea"],  # Default submission types
+                "submission_type": reuse_type,
+                "reuse_type_options": ["example", "idea"],
                 "package_names": {},
             },
         )
 
 
 @blueprint.route("/view/<submission_id>")
-def view_submission(submission_id):
+def view_data_reuse(submission_id):
     """View a specific data reuse submission"""
     context = _get_context()
 
@@ -271,11 +281,11 @@ def view_submission(submission_id):
     except Exception as e:
         log.error("Error viewing submission: %s", str(e))
         h.flash_error(tk._("An error occurred while loading the submission"))
-        return redirect(url_for("data_reuse.list_submissions"))
+        return redirect(url_for("data_reuse.list_data_reuse"))
 
 
 @blueprint.route("/delete/<submission_id>", methods=["POST"])
-def delete_submission(submission_id):
+def delete_data_reuse(submission_id):
     """Delete a data reuse submission"""
     context = _get_context()
 
@@ -290,4 +300,4 @@ def delete_submission(submission_id):
         log.error("Error deleting submission: %s", str(e))
         h.flash_error(tk._("An error occurred while deleting the submission"))
 
-    return redirect(url_for("data_reuse.list_submissions"))
+    return redirect(url_for("data_reuse.list_data_reuse"))

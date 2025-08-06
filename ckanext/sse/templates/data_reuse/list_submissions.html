@@ -10,7 +10,7 @@
 <article class="module">
   <div class="module-content">
     <h1 class="page-heading">
-      {% block page_heading %}{{ _('Dataset Reuse Submissions') }}{% endblock %}
+      {% block page_heading %}{{ _('Dataset reuse submissions') }}{% endblock %}
     </h1>
 
     <div class="bg-light rounded mb-4">
@@ -19,10 +19,10 @@
 
           <div class="row g-3 align-items-end">
             <div class="col-md-4">
-              <label for="submission_type" class="form-label">{{ _('Submission Type') }}</label>
-              <select id="submission_type" name="submission_type" class="form-select">
+              <label for="reuse_type" class="form-label">{{ _('Submission Type') }}</label>
+              <select id="reuse_type" name="reuse_type" class="form-select">
                 <option value="">{{ _('All Types') }}</option>
-                {% for type in submission_types %}
+                {% for type in reuse_type_options %}
                 <option value="{{ type }}" {% if submission_type==type %} selected{% endif %}>{{ type }}</option>
                 {% endfor %}
               </select>
@@ -30,7 +30,7 @@
 
             <div class="col-md-4">
               <button type="submit" class="btn btn-primary me-2">{{ _('Apply Filter') }}</button>
-              <a href="{{ h.url_for('data_reuse.list_submissions') }}" class="btn btn-outline-secondary">{{ _('Clear
+              <a href="{{ h.url_for('data_reuse.list_data_reuse') }}" class="btn btn-outline-secondary">{{ _('Clear
                 Filter') }}</a>
             </div>
 
@@ -67,8 +67,8 @@
               {% endif %}
             </td>
             <td>
-              <span class="badge bg-{% if submission.submission_type == 'Example' %}success{% else %}info{% endif %}">
-                {{ submission.data.submission_type }}
+              <span class="badge bg-{% if submission.type == 'example' %}success{% else %}info{% endif %}">
+                {{ submission.type | capitalize }}
               </span>
             </td>
             <td>
@@ -90,15 +90,15 @@
             </td>
             <td>
               <div class="btn-group" role="group">
-                <a href="{{ h.url_for('data_reuse.view_submission', submission_id=submission.id) }}"
+                <a href="{{ h.url_for('data_reuse.view_data_reuse', submission_id=submission.id) }}"
                   class="btn btn-primary btn-sm me-2">
                   <i class="fa fa-eye"></i> {{ _('View') }}
                 </a>
                 {% if h.check_access('data_reuse_delete', {'id': submission.id}) %}
                 <form method="post"
-                  action="{{ h.url_for('data_reuse.delete_submission', submission_id=submission.id) }}"
+                  action="{{ h.url_for('data_reuse.delete_data_reuse', submission_id=submission.id) }}"
                   style="display: inline;" class="delete-form">
-                  <a href="{{ h.url_for('data_reuse.delete_submission', submission_id=submission.id) }}"
+                  <a href="{{ h.url_for('data_reuse.delete_data_reuse', submission_id=submission.id) }}"
                     class="btn btn-danger btn-sm" data-module="confirm-action" *
                     data-module-content="{{ _('Are you sure?') }}">
                     <i class="fa fa-trash"></i> {{ _('Delete') }}
@@ -121,7 +121,7 @@
           {% if page > 1 %}
           <li class="page-item">
             <a class="page-link"
-              href="{{ h.url_for('data_reuse.list_submissions', page=page-1, submission_type=submission_type) }}">{{
+              href="{{ h.url_for('data_reuse.list_data_reuse', page=page-1, submission_type=submission_type) }}">{{
               _('« Previous') }}</a>
           </li>
           {% endif %}
@@ -133,7 +133,7 @@
           </li>
           {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %} <li class="page-item">
             <a class="page-link"
-              href="{{ h.url_for('data_reuse.list_submissions', page=p, submission_type=submission_type) }}">{{ p }}</a>
+              href="{{ h.url_for('data_reuse.list_data_reuse', page=p, submission_type=submission_type) }}">{{ p }}</a>
             </li>
             {% elif p == page - 3 or p == page + 3 %}
             <li class="page-item disabled">
@@ -144,7 +144,7 @@
 
             {% if page < total_pages %} <li class="page-item">
               <a class="page-link"
-                href="{{ h.url_for('data_reuse.list_submissions', page=page+1, submission_type=submission_type) }}">{{
+                href="{{ h.url_for('data_reuse.list_data_reuse', page=page+1, submission_type=submission_type) }}">{{
                 _('Next »') }}</a>
               </li>
               {% endif %}
@@ -162,7 +162,7 @@
       <div class="empty">
         <p class="empty-message">{{ _('No submissions found.') }}</p>
         {% if submission_type %}
-        <p>{{ _('Try adjusting your filter or') }} <a href="{{ h.url_for('data_reuse.list_submissions') }}">{{ _('view
+        <p>{{ _('Try adjusting your filter or') }} <a href="{{ h.url_for('data_reuse.list_data_reuse') }}">{{ _('view
             all submissions') }}</a>.</p>
         {% endif %}
       </div>
@@ -178,8 +178,6 @@
     {{ _('About Data Reuse') }}
   </h2>
   <div class="module-content">
-    <p class="small">{{ _('This section shows how our datasets are being used by the community.') }}</p>
-    
     <h3 class="h6">{{ _('Submission Types') }}</h3>
     <dl>
       <dt><span class="badge bg-success">{{ _('Example') }}</span></dt>

@@ -1,0 +1,103 @@
+{% extends "page.html" %}
+
+{% block subtitle %}{{ _('Submission Successful') }}{% endblock %}
+
+{% block breadcrumb_content %}
+<li>{{ h.nav_link(_('Datasets'), named_route='dataset.search') }}</li>
+{% if package %}
+<li>{{ h.nav_link(package.title or package.name, named_route='dataset.read', id=package.name) }}</li>
+{% endif %}
+<li class="active">{{ _('Submission Successful') }}</li>
+{% endblock %}
+
+{% block primary_content %}
+<article class="module">
+  <div class="module-content">
+    <div class="text-center py-5">
+      <!-- Success Icon -->
+      <div class="mb-4">
+        <i class="fa fa-check-circle text-success" style="font-size: 4rem;"></i>
+      </div>
+
+      <!-- Success Message -->
+      <h1 class="page-heading mb-4">{{ _('Thank you for your contribution!') }}</h1>
+
+      <div class="alert alert-success" role="alert">
+        <h4 class="alert-heading">{{ _('Submission Received') }}</h4>
+        <p class="mb-0">
+          {% if reuse_type == 'example' %}
+          {{ _('You\'ve submitted a data usage example titled') }} <strong>"{{ submission_title }}"</strong>
+          {% if package %}
+          {{ _('related to dataset') }} <strong>"{{ package.title }}"</strong>.
+          {% endif %}
+          {% elif reuse_type == 'idea' %}
+          {{ _('You\'ve submitted a data usage idea titled') }} <strong>"{{ submission_title }}"</strong>
+          {% if package %}
+          {{ _('related to dataset') }} <strong>"{{ package.title }}"</strong>.
+          {% endif %}
+          {% else %}
+          {{ _('You\'ve submitted a data reuse titled') }} <strong>"{{ submission_title }}"</strong>
+          {% if package %}
+          {{ _('related to dataset') }} <strong>"{{ package.title }}"</strong>.
+          {% endif %}
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="alert alert-info" role="alert">
+        <h5 class="alert-heading">{{ _('What happens next?') }}</h5>
+        <p class="mb-0">
+          {{ _('We appreciate your contribution. Your submission is now under review by the admin team. If everything
+          looks good, it will be approved. Otherwise, you\'ll receive feedback via email so you can make any necessary
+          changes and re-submit.') }}
+        </p>
+        <hr>
+        <p class="mb-0">
+          <strong>{{ _('Please keep an eye on your inbox for a confirmation of approval or a request for revision.')
+            }}</strong>
+        </p>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="mt-5">
+        {% if package %}
+        <a href="{{ h.url_for('dataset.read', id=package.id) }}" class="btn btn-primary me-3">
+          <i class="fa fa-arrow-left"></i> {{ _('Back to Dataset') }}
+        </a>
+        {% endif %}
+
+        <a href="{{ h.url_for('data_reuse.submit_data_reuse', package_id=package.id, reuse_type=reuse_type) if package else '#' }}"
+          class="btn btn-outline-primary me-3">
+          <i class="fa fa-plus"></i> {{ _('Submit Another') }}
+        </a>
+
+        <a href="{{ h.url_for('dataset.search') }}" class="btn btn-outline-secondary">
+          <i class="fa fa-search"></i> {{ _('Browse Datasets') }}
+        </a>
+      </div>
+    </div>
+  </div>
+</article>
+{% endblock %}
+
+{% block secondary_content %}
+<aside class="module module-narrow module-shallow">
+  <h2 class="module-heading">
+    <i class="fa fa-info-circle"></i>
+    {{ _('About Data Reuse') }}
+  </h2>
+  <div class="module-content">
+    <p>{{ _('Data reuse submissions help other users understand how datasets can be applied in real-world scenarios.')
+      }}</p>
+
+    <h3 class="h6">{{ _('Submission Types') }}</h3>
+    <dl>
+      <dt><span class="badge bg-success">{{ _('Example') }}</span></dt>
+      <dd class="small">{{ _('Real-world applications where the data has been successfully used.') }}</dd>
+
+      <dt><span class="badge bg-info">{{ _('Idea') }}</span></dt>
+      <dd class="small">{{ _('Suggestions for potential uses of the data.') }}</dd>
+    </dl>
+  </div>
+</aside>
+{% endblock %}

@@ -4,6 +4,7 @@ import datetime
 from sqlalchemy import or_
 from ckan.common import _, asbool
 from ckan.plugins import toolkit as tk
+import ckan.lib.uploader as uploader
 from ckanext.scheming.helpers import (
     scheming_field_choices,
     scheming_get_dataset_schema,
@@ -637,11 +638,22 @@ def data_reuse_create(context, data_dict):
         form_data = {
             k: v
             for k, v in data_dict.items()
-            if k not in ["id", "user_id", "package_id", "form_type"]
+            if k not in ["id", "user_id", "package_id", "reuse_type"]
         }
 
+        upload = uploader.get_uploader("reuse")
+        upload.update_data_dict(data_dict, "image_url", "image_upload", "clear_upload")
+
+        upload.upload(uploader.get_max_image_size())
+
+        if form_data.get("image_upload"):
+            form_data.pop("image_upload")
+            form_data["image_url"] = (
+                f"{tk.config.get('ckan.site_url')}/uploads/reuse/{data_dict['image_url']}"
+            )
+
         submission = FormResponse.create(
-            form_type=data_dict["submission_type"],
+            form_type=data_dict["reuse_type"],
             form_data=form_data,
             user_id=data_dict.get("user_id"),
             package_id=data_dict["package_id"],
@@ -667,7 +679,7 @@ def data_reuse_list(context, data_dict):
     List data reuse submissions with optional filtering.
 
     :param package_id: Optional package ID filter
-    :param submission_type: Optional submission type filter ('Example' or 'Idea')
+    :param reuse_type: Optional submission type filter ('Example' or 'Idea')
     :param label: Optional label filter
     :param organisation_type: Optional organisation type filter
     :param showcase_approved: Optional filter for showcase approved submissions
@@ -677,13 +689,13 @@ def data_reuse_list(context, data_dict):
     """
     tk.check_access("data_reuse_list", context, data_dict)
 
-    submission_type = data_dict.get("submission_type")
+    reuse_type = data_dict.get("reuse_type")
     limit = int(data_dict.get("limit", 100))
     offset = int(data_dict.get("offset", 0))
 
     # Get both new 'data_reuse' and legacy 'usage_idea' submissions
-    if submission_type:
-        submissions = FormResponse.get_by_form_type(submission_type)
+    if reuse_type:
+        submissions = FormResponse.get_by_form_type(reuse_type)
     else:
         submissions = FormResponse.get_all()
 
@@ -745,10 +757,20 @@ def data_reuse_update(context, data_dict):
     form_data = {
         k: v
         for k, v in data_dict.items()
-        if k not in ["id", "user_id", "package_id", "form_type"]
+        if k not in ["id", "user_id", "package_id", "reuse_type"]
     }
 
     try:
+        upload = uploader.get_uploader("reuse")
+        upload.update_data_dict(data_dict, "image_url", "image_upload", "clear_upload")
+
+        upload.upload(uploader.get_max_image_size())
+
+        if form_data.get("image_upload"):
+            form_data.pop("image_upload")
+            form_data["image_url"] = (
+                f"{tk.config.get('ckan.site_url')}/uploads/reuse/{data_dict['image_url']}"
+            )
 
         updated_submission = FormResponse.update_data(submission_id, form_data)
 

@@ -4,15 +4,22 @@
     <p>{{ _('Have you used this dataset? Share your experience to help others understand its value and potential applications.') }}</p>
     
     <div class="data-reuse-actions">
-      <a href="{{ h.url_for('data_reuse.submit_form', package_id=pkg.id) }}" 
+      <a href="{{ h.url_for('data_reuse.submit_data_reuse', package_id=pkg.id, reuse_type='idea') }}" 
          class="btn btn-primary mb-2">  
-        <i class="fa fa-edit"></i> {{ _('Share Resuse Information') }}
+        <i class="fa fa-edit"></i> {{ _('Share Data Usage Idea') }}
+      </a>
+
+         <a href="{{ h.url_for('data_reuse.submit_data_reuse', package_id=pkg.id, reuse_type='example') }}" 
+         class="btn btn-primary mb-2">  
+        <i class="fa fa-edit"></i> {{ _('Share Data Usage Example') }}
       </a>
       
+
+      
       {% if h.check_access('data_reuse_list') %}
-        <a href="{{ h.url_for('data_reuse.list_submissions', package_id=pkg.id) }}" 
+        <a href="{{ h.url_for('data_reuse.list_data_reuse', package_id=pkg.id) }}" 
            class="btn btn-default">
-          <i class="fa fa-list"></i> {{ _('View all Submissions') }}
+          <i class="fa fa-list"></i> {{ _('View all reuse or idea') }}
         </a>
       {% endif %}
     </div>

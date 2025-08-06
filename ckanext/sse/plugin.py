@@ -11,9 +11,9 @@ from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, dat
 from .model import PackageAccessRequest, FormResponse
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
-    is_org_admin_by_package_id, 
+    is_org_admin_by_package_id,
     is_admin_of_any_org,
-    get_data_reuse_field_labels
+    get_data_reuse_field_labels,
 )
 from ckan import logic, model, plugins
 from .utils import update_resource_extra
@@ -77,9 +77,9 @@ class SsePlugin(plugins.SingletonPlugin):
     # ITemplateHelpers
     def get_helpers(self):
         return {
-            'is_org_admin_by_package_id': is_org_admin_by_package_id, 
-            'is_admin_of_any_org': is_admin_of_any_org,
-            'get_data_reuse_field_labels': get_data_reuse_field_labels,
+                    'is_org_admin_by_package_id': is_org_admin_by_package_id,
+        'is_admin_of_any_org': is_admin_of_any_org,
+        'get_data_reuse_field_labels': get_data_reuse_field_labels,
         }
 
     # IPermissionLabels

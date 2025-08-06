@@ -94,7 +94,6 @@
             </div>
             {% endif %}
 
-            <!-- Image Display for Example Type -->
             {% if submission.data.image_url %}
             <div class="mb-4">
               <h6 class="text-primary mb-2">{{ _('Image') }}</h6>
@@ -110,34 +109,6 @@
             </div>
             {% endif %}
 
-            <!-- Display uploaded files for examples -->
-            {% if submission.data.example_files %}
-            <div class="mb-4">
-              <h6 class="text-primary mb-2">{{ _('Supporting Files') }}</h6>
-              <div class="p-3 bg-light rounded border">
-                {% set files = submission.data.example_files|from_json %}
-                {% if files %}
-                <div class="row">
-                  {% for file in files %}
-                  <div class="col-md-6 col-lg-4 mb-3">
-                    <div class="card h-100">
-                      <div class="card-body">
-                        <h6 class="card-title text-truncate" title="{{ file.filename }}">{{ file.filename }}</h6>
-                        <p class="card-text small text-muted">
-                          {{ (file.size / 1024 / 1024)|round(2) }} MB
-                        </p>
-                        <a href="{{ file.url }}" class="btn btn-sm btn-primary" target="_blank">
-                          <i class="fa fa-download"></i> {{ _('Download') }}
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                  {% endfor %}
-                </div>
-                {% endif %}
-              </div>
-            </div>
-            {% endif %}
 
             <!-- Usage Idea -->
             {% if submission.data.usage_idea %}

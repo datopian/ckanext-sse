@@ -14,10 +14,7 @@ this.ckan.module("data-reuse-form", function ($) {
       console.log("Data reuse form module initialized");
 
       // Cache DOM elements
-      this.submissionTypeSelect = $(this.options.submissionTypeSelector);
       this.showcasePermissionSelect = $(this.options.showcasePermissionSelector);
-      this.usageExampleField = $(this.options.usageExampleFieldSelector);
-      this.usageIdeaField = $(this.options.usageIdeaFieldSelector);
       this.showcaseOtherField = $(this.options.showcaseOtherFieldSelector);
       this.form = this.el;
 

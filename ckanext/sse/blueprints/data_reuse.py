@@ -1,12 +1,10 @@
 import logging
 from typing import cast
 
-import ckan.lib.base as base
 import ckan.logic as logic
 import ckan.model as model
 import ckan.lib.navl.dictization_functions as dict_fns
 
-from ckan.lib.helpers import helper_functions as h
 from ckan.types import Context
 from flask import Blueprint, redirect, url_for
 import ckan.plugins.toolkit as tk
@@ -40,15 +38,17 @@ def submit_data_reuse(
     # Verify package exists
     try:
         package = tk.get_action("package_show")(context, {"id": package_id})
-    except logic.NotFound:
-        return base.abort(404, tk._("Dataset not found"))
-    except logic.NotAuthorized:
-        return base.abort(403, tk._("Not authorized to view this dataset"))
+    except tk.ObjectNotFound:
+        return tk.abort(404, tk._("Dataset not found"))
+    except tk.NotAuthorized:
+        return tk.abort(403, tk._("Not authorized to view this dataset"))
     if tk.request.method == "POST":
         try:
             # Get form data
             form_data = logic.clean_dict(
-                dict_fns.unflatten(logic.tuplize_dict(logic.parse_params(tk.request.form)))
+                dict_fns.unflatten(
+                    logic.tuplize_dict(logic.parse_params(tk.request.form))
+                )
             )
             form_data.update(
                 logic.clean_dict(
@@ -75,16 +75,18 @@ def submit_data_reuse(
                 "reuse_type": reuse_type,
                 "submission_title": form_data.get("title", ""),
             }
-            return base.render("data_reuse/submission_success.html", extra_vars=extra_vars)
+            return tk.render(
+                "data_reuse/submission_success.html", extra_vars=extra_vars
+            )
 
-        except logic.ValidationError as e:
+        except tk.ValidationError as e:
             errors = e.error_dict
-            h.flash_error(tk._("Please correct the errors below", errors))
-        except logic.NotAuthorized:
-            return base.abort(403, tk._("Not authorized to submit data reuse form"))
+            tk.h.flash_error(tk._("Please correct the errors below", errors))
+        except tk.NotAuthorized:
+            return tk.abort(403, tk._("Not authorized to submit data reuse form"))
         except Exception as e:
             log.error("Error submitting data reuse form: %s", str(e))
-            h.flash_error(
+            tk.h.flash_error(
                 tk._("An error occurred while submitting your form. Please try again.")
             )
             errors = {}
@@ -113,7 +115,7 @@ def submit_data_reuse(
         {"value": "Technology", "text": tk._("Technology")},
         {"value": "Other", "text": tk._("Other")},
     ]
- 
+
     showcase_permission_choices = [
         {"value": "", "text": tk._("Select permission")},
         {"value": "Yes", "text": tk._("Yes")},
@@ -137,7 +139,7 @@ def submit_data_reuse(
         "contact_permission_choices": contact_permission_choices,
     }
 
-    return base.render("data_reuse/submit_form.html", extra_vars=extra_vars)
+    return tk.render("data_reuse/submit_form.html", extra_vars=extra_vars)
 
 
 @blueprint.route("/list")
@@ -146,9 +148,9 @@ def list_data_reuse():
     context = _get_context()
 
     try:
-        logic.check_access("data_reuse_list", context, {})
-    except logic.NotAuthorized:
-        return base.abort(403, tk._("Not authorized to view data reuse submissions"))
+        tk.check_access("data_reuse_list", context, {})
+    except tk.NotAuthorized:
+        return tk.abort(403, tk._("Not authorized to view data reuse submissions"))
 
     # Get query parameters for filtering
     reuse_type = tk.request.args.get("reuse_type", "")
@@ -229,12 +231,12 @@ def list_data_reuse():
             "package_names": package_names,
         }
 
-        return base.render("data_reuse/list_submissions.html", extra_vars=extra_vars)
+        return tk.render("data_reuse/list_submissions.html", extra_vars=extra_vars)
 
     except Exception as e:
         log.error("Error listing data reuse submissions: %s", str(e))
-        h.flash_error(tk._("An error occurred while loading submissions"))
-        return base.render(
+        tk.h.flash_error(tk._("An error occurred while loading submissions"))
+        return tk.render(
             "data_reuse/list_submissions.html",
             extra_vars={
                 "submissions": [],
@@ -272,15 +274,15 @@ def view_data_reuse(submission_id):
             "package": package,
         }
 
-        return base.render("data_reuse/view_submission.html", extra_vars=extra_vars)
+        return tk.render("data_reuse/view_submission.html", extra_vars=extra_vars)
 
-    except logic.NotFound:
-        return base.abort(404, tk._("Submission not found"))
-    except logic.NotAuthorized:
-        return base.abort(403, tk._("Not authorized to view this submission"))
+    except tk.NotFound:
+        return tk.abort(404, tk._("Submission not found"))
+    except tk.NotAuthorized:
+        return tk.abort(403, tk._("Not authorized to view this submission"))
     except Exception as e:
         log.error("Error viewing submission: %s", str(e))
-        h.flash_error(tk._("An error occurred while loading the submission"))
+        tk.h.flash_error(tk._("An error occurred while loading the submission"))
         return redirect(url_for("data_reuse.list_data_reuse"))
 
 
@@ -291,13 +293,13 @@ def delete_data_reuse(submission_id):
 
     try:
         tk.get_action("data_reuse_delete")(context, {"id": submission_id})
-        h.flash_success(tk._("Submission deleted successfully"))
-    except logic.NotFound:
-        h.flash_error(tk._("Submission not found"))
-    except logic.NotAuthorized:
-        h.flash_error(tk._("Not authorized to delete this submission"))
+        tk.h.flash_success(tk._("Submission deleted successfully"))
+    except tk.NotFound:
+        tk.h.flash_error(tk._("Submission not found"))
+    except tk.NotAuthorized:
+        tk.h.flash_error(tk._("Not authorized to delete this submission"))
     except Exception as e:
         log.error("Error deleting submission: %s", str(e))
-        h.flash_error(tk._("An error occurred while deleting the submission"))
+        tk.h.flash_error(tk._("An error occurred while deleting the submission"))
 
     return redirect(url_for("data_reuse.list_data_reuse"))

@@ -23,7 +23,6 @@ import ckan
 import ckan.logic
 import ckan.lib.navl.dictization_functions as dictization_functions
 import ckan.logic as logic
-import ckan.plugins.toolkit as toolkit
 from .logic import (
     mail_allowed_user,
     send_request_mail_to_org_admins,
@@ -110,7 +109,7 @@ def resource_activity_list(context, data_dict):
 def package_collaborator_create(up_func, context, data_dict):
     result = up_func(context, data_dict)
     if context.get("send_approval_email"):
-        pkg = toolkit.get_action("package_show")(
+        pkg = tk.get_action("package_show")(
             {"ignore_auth": True}, {"id": data_dict.get("id")}
         )
 
@@ -131,11 +130,11 @@ def package_collaborator_create(up_func, context, data_dict):
 def package_collaborator_delete(up_func, context, data_dict):
     result = up_func(context, data_dict)
 
-    pkg = toolkit.get_action("package_show")(
+    pkg = tk.get_action("package_show")(
         {"ignore_auth": True}, {"id": data_dict.get("id")}
     )
 
-    user = toolkit.get_action("user_show")(
+    user = tk.get_action("user_show")(
         {"ignore_auth": True, "keep_email": True}, {"id": data_dict.get("user_id")}
     )
 
@@ -170,10 +169,10 @@ def package_collaborator_delete(up_func, context, data_dict):
 @logic.validate(package_request_access_schema)
 @tk.side_effect_free
 def request_access_to_dataset(context, data_dict):
-    if toolkit.current_user.is_anonymous:
+    if tk.current_user.is_anonymous:
         raise NotAuthorized
-    user = toolkit.get_action("user_show")(
-        {"ignore_auth": True, "keep_email": True}, {"id": toolkit.current_user.id}
+    user = tk.get_action("user_show")(
+        {"ignore_auth": True, "keep_email": True}, {"id": tk.current_user.id}
     )
 
     already_have_access_error = {
@@ -196,10 +195,10 @@ def request_access_to_dataset(context, data_dict):
     pkg = None
 
     try:
-        pkg = toolkit.get_action("package_show")(
+        pkg = tk.get_action("package_show")(
             context, {"id": data_dict.get("package_id")}
         )
-    except toolkit.ObjectNotFound:
+    except tk.ObjectNotFound:
         raise NotFound("Dataset not found")
     except Exception as e:
         log.error(e)
@@ -407,7 +406,7 @@ def _transform_package_show(package_dict, frequencies, context):
             )
             belong_to_the_dataset_org = is_user_id_present_in_the_dict_list(
                 user.id,
-                toolkit.get_action("organization_show")(
+                tk.get_action("organization_show")(
                     {"ignore_auth": True},
                     {"id": package_dict.get("organization").get("id")},
                 ).get("users"),
@@ -629,8 +628,8 @@ def data_reuse_create(context, data_dict):
     tk.check_access("data_reuse_create", context, data_dict)
 
     # Set user_id to current user if not provided and user is logged in
-    if not data_dict.get("user_id") and not toolkit.current_user.is_anonymous:
-        data_dict["user_id"] = toolkit.current_user.id
+    if not data_dict.get("user_id") and not tk.current_user.is_anonymous:
+        data_dict["user_id"] = tk.current_user.id
 
     try:
 

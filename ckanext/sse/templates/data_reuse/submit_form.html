@@ -1,0 +1,202 @@
+{% extends "page.html" %}
+{% import 'macros/form.html' as form %}
+
+{% block subtitle %}{{ _('Submit Data Usage Form') }} - {{ package.title or package.name }}{% endblock %}
+
+{% block breadcrumb_content %}
+<li>{{ h.nav_link(_('Datasets'), named_route='dataset.search') }}</li>
+<li>{{ h.nav_link(package.title or package.name, named_route='dataset.read', id=package.name) }}</li>
+<li class="active">{{ _('Submit Reuse ') }}</li>
+{% endblock %}
+
+{% block primary_content %}
+{% set field_labels = h.get_data_reuse_field_labels() %}
+<article class="module">
+  <div class="module-content">
+    <h1 class="page-heading">
+      {% block page_heading %}
+      {% if reuse_type == 'example' %}
+      {{ _('Share data usage examples') }}
+      {% endif %}
+
+      {% if reuse_type == 'idea' %}
+      {{ _('Share data usage ideas') }}
+      {% endif %}
+      {% endblock %}
+    </h1>
+
+    <div class="alert alert-info">
+      <p>{{ _('We are at a critical point in the electricity distribution industry. To meet our national carbon neutral
+        targets and realise the potential of renewable energy solutions we must identify opportunities for innovation,
+        efficiency, and to support new legislation.
+        This is only possible if we collaborate across the industry. To support this effort, we aim to create a
+        community of energy data users.') }}</p>
+
+      {% if reuse_type == 'example' %}
+      <p>{{ _(' Please share how you have utilised our data to help other users identify how it could be done. Your
+        responses will be shared on the data portal. ') }}</p>
+      {% endif %}
+
+      {% if reuse_type == 'idea' %}
+      <p>{{ _(' Please share your idea for how this dataset could be used. This would provide other users with a
+        starting point for how they could use the data. ') }}</p>
+      {% endif %}
+
+    </div>
+
+    <form method="post" action="{{ h.url_for('data_reuse.submit_data_reuse', package_id=package.id, reuse_type=reuse_type) }}"
+      class="form-horizontal needs-validation" data-module="data-reuse-form" enctype="multipart/form-data" novalidate>
+
+      <!-- Section 1: Tell us about yourself -->
+      <div class="reuse-form-section">
+        <h2 class="section-heading">{{ _('Tell us about yourself') }}</h2>
+        <div class="section-content">
+          <!-- Full Name -->
+          {{ form.input('full_name', id='full_name',
+          label=field_labels.full_name, placeholder=_('Enter your full name'),
+          value=data.full_name, error=errors.full_name, classes=['control-full'], attrs={ 'class': 'form-control'}) }}
+
+          <!-- Email Address -->
+          {{ form.input('email_address', id='email_address', type='email',
+          is_required=True,
+          label=field_labels.email_address,
+          placeholder=_('Enter your email address'), value=data.email_address, error=errors.email_address,
+          classes=['control-full'], attrs={'required':
+          'required', 'type': 'email', 'class': 'form-control'}) }}
+          <div class="invalid-feedback">
+            {{ _('Please provide a valid email address.') }}
+          </div>
+
+          <!-- Job Title -->
+          {{ form.input('job_title', id='job_title', label=field_labels.job_title,
+          placeholder=_('Enter your job title'),
+          value=data.job_title, error=errors.job_title, classes=['control-full'], attrs={'class': 'form-control',
+          'required': 'required', } ) }}
+
+          <!-- Organisation Name -->
+          {{ form.input('organisation_name', id='organisation_name',
+          label=field_labels.organisation_name,
+          placeholder=_('Enter your organisation name'), value=data.organisation_name, error=errors.organisation_name,
+          classes=['control-full'],
+          attrs={ 'class': 'form-control'}) }}
+
+          <!-- Organisation Type -->
+          {{ form.select('organisation_type', id='organisation_type', label=field_labels.organisation_type,
+          is_required=True,
+          options=organisation_type_choices, selected=data.organisation_type, error=errors.organisation_type,
+          classes=['control-full'], attrs={'required': 'required', 'class': 'form-control'}) }}
+          <div class="invalid-feedback">
+            {{ _('Please select an organisation type.') }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Tell us about your reuse -->
+      <div class="reuse-form-section">
+        <h2 class="section-heading">{{ _('Tell us about your reuse') }}</h2>
+        <div class="section-content">
+          <!-- Title -->
+          {{ form.input('title', id='title', label=field_labels.title,
+          is_required=True,
+          placeholder=_('Brief title describing your usage or idea'),
+          value=data.title, error=errors.title, classes=['control-full'], attrs={'required': 'required', 'class':
+          'form-control'}) }}
+          <div class="invalid-feedback">
+            {{ _('Please provide a title.') }}
+          </div>
+
+          <!-- Data Asset used? -->
+          {{ form.select('package_id', id='field-type', label=_('Data Asset used? '), options=[{'value': package.id,
+          'text': package.title}], selected=package.id, error=errors.package_id, attrs={'disabled': 'disabled', 'class':
+          'form-control'}) }}
+
+          <!-- Label -->
+          {{ form.select('label', id='label', label=field_labels.label, options=label_choices, selected=data.label,
+          is_required=True,
+          error=errors.label, classes=['control-full'], attrs={'required': 'required', 'class': 'form-control'}) }}
+          <div class="invalid-feedback">
+            {{ _('Please select a label.') }}
+          </div>
+
+          <!-- Usage Example - shown for "Example" type -->
+          <div id="description">
+            {{ form.textarea('description', id='description', label=field_labels.description,
+            placeholder=_('Describe how you have used this dataset...'), value=data.description,
+            error=errors.description, is_required=True,
+            attrs={'required': 'required','class': 'form-control', 'rows': '6', 'style': 'white-space: pre-wrap;'},
+            classes=['control-full']) }}
+            <div class="invalid-feedback">
+              {{ _('Please describe how you used the data.') }}
+            </div>
+          </div>
+
+          {% if reuse_type == 'example' %}
+          {% set is_upload = data.image_url and not data.image_url.startswith('http') %}
+          {% set is_url = data.image_url and data.image_url.startswith('http') %}
+          <!-- Image URL -->
+          {{ form.image_upload(data, errors, is_upload_enabled=h.uploads_enabled(), is_url=is_url, is_upload=is_upload,
+          upload_label=_('Image '), url_label=_('Image URL') )}}
+          {% endif %}
+
+          <!-- Showcase Permission -->
+          {{ form.select('showcase_permission', id='showcase_permission',
+          label=field_labels.showcase_permission, is_required=True,
+          options=showcase_permission_choices, selected=data.showcase_permission, error=errors.showcase_permission,
+          classes=['control-full'], attrs={'required': 'required', 'class': 'form-control'}) }}
+
+          <div class="control-group{% if errors.showcase_permission_other %} error{% endif %}" id="showcase_other_field"
+            style="display: none;">
+            {{ form.textarea('showcase_permission_other', id='showcase_permission_other',
+            label=field_labels.showcase_permission_other, placeholder=_('Please specify your permission requirements'),
+            value=data.showcase_permission_other, is_required=True,
+            error=errors.showcase_permission_other, attrs={'class': 'form-control', 'rows': '3', 'style': 'white-space:
+            pre-wrap;'},
+            classes=['control-full']) }}
+            <div class="invalid-feedback">
+              {{ _('Please specify your permission requirements.') }}
+            </div>
+          </div>
+
+          <!-- Additional Information -->
+          {{ form.textarea('additional_information', id='additional_information',
+          label=field_labels.additional_information,
+          placeholder=_('Any additional information you would like to share...'), value=data.additional_information,
+          error=errors.additional_information, attrs={'class': 'form-control', 'rows': '4', 'style': 'white-space:
+          pre-wrap;'}, classes=['control-full'])
+          }}
+
+          <!-- Contact Permission -->
+          {{ form.select('contact_permission', id='contact_permission', label=field_labels.contact_permission,
+          options=contact_permission_choices, selected=data.contact_permission, error=errors.contact_permission,
+          classes=['control-full'],
+          attrs={'class': 'form-control'}) }}
+        </div>
+      </div>
+
+      <!-- Submit Button -->
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">{{ _('Submit') }}</button>
+        <a href="{{ h.url_for('dataset.read', id=package.name) }}" class="btn btn-default">{{ _('Cancel') }}</a>
+      </div>
+    </form>
+  </div>
+</article>
+{% endblock %}
+
+{% block secondary_content %}
+<aside class="module module-narrow module-shallow">
+  <h2 class="module-heading">
+    <i class="fa fa-info-circle"></i>
+    {{ _('Help') }}
+  </h2>
+  <div class="module-content">
+    <p class="small">{{ _('Share how you use this dataset to help others discover new applications.') }}</p>
+    <ul>
+      <li class="small">{{ _('Provide examples of how you have used this dataset in your work or projects.') }}</li>
+      <li class="small">{{ _('Suggest potential idea of usage if you have not used it yet.') }}</li>
+    </ul>
+
+    <p class="small text-muted">{{ _('Your submission may be showcased publicly.') }}</p>
+  </div>
+</aside>
+{% endblock %}

@@ -5,3 +5,8 @@
     {{ h.build_nav_icon('ssen_dataset.user_groups', _('User Groups'), id=pkg.name, icon='users') }}
     {{ h.build_nav_icon('activity.package_activity', _('Activity Stream'), id=pkg.id if is_activity_archive else pkg.name, icon='clock') }}
 {% endblock %}
+
+{% block secondary_content %}
+  {{ super() }}
+  {% snippet 'data_reuse/data_reuse_widget.html', pkg=pkg %}
+{% endblock %}

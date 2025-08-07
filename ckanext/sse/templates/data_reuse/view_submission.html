@@ -1,0 +1,192 @@
+{% extends "page.html" %}
+
+{% block subtitle %}{{ _('View Submission') }}{% endblock %}
+
+{% block breadcrumb_content %}
+<li class="breadcrumb-item">{{ h.nav_link(_('Data Usage Submissions'), named_route='data_reuse.list_data_reuse') }}
+</li>
+<li class="breadcrumb-item active">{{ _('View Submission') }}</li>
+{% endblock %}
+
+{% block primary_content %}
+{% set field_labels = h.get_data_reuse_field_labels() %}
+<div class="row module-content">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header">
+        <h1 class="h4 mb-0">{{ _('Reuse Submission') }}</h1>
+        <small class="text-muted">{{ field_labels.submitted_at }}: {{ h.time_ago_from_timestamp(submission.submitted_at)
+          if submission.submitted_at else _('Unknown') }}</small>
+      </div>
+
+      <div class="card-body">
+        <!-- Section 1: About the Person -->
+        <div class="reuse-form-section">
+          <h2 class="section-heading">{{ _('About the Person') }}</h2>
+          <div class="section-content">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.full_name }}</h6>
+                <p class="mb-0">{{ submission.data.full_name or _('Not specified') }}</p>
+              </div>
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.email_address }}</h6>
+                <p class="mb-0">{{ submission.data.email_address or _('Not specified') }}</p>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.job_title }}</h6>
+                <p class="mb-0">{{ submission.data.job_title or _('Not specified') }}</p>
+              </div>
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.organisation_name }}</h6>
+                <p class="mb-0">{{ submission.data.organisation_name or _('Not specified') }}</p>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.organisation_type }}</h6>
+                <p class="mb-0">{{ submission.data.organisation_type or _('Not specified') }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: About the Reuse -->
+        <div class="reuse-form-section">
+          <h2 class="section-heading">{{ _('About the Reuse') }}</h2>
+          <div class="section-content">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.title }}</h6>
+                <p class="mb-0">{{ submission.data.title or _('Not specified') }}</p>
+              </div>
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.dataset }}</h6>
+                {% if package %}
+                <a href="{{ h.url_for('dataset.read', id=package.id) }}" class="text-decoration-none">
+                  {{ package.title }}
+                </a>
+                {% else %}
+                <p class="mb-0 text-muted">{{ _('No dataset') }}</p>
+                {% endif %}
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.label }}</h6>
+                <p class="mb-0">{{ submission.data.label or _('Not specified') }}</p>
+              </div>
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ _('Submission Type') }}</h6>
+                <p class="mb-0 text-capitalize">{{ submission.type or _('Not specified') }}
+              </div>
+            </div>
+
+            <!-- Description/Usage Example -->
+            {% if submission.data.description %}
+            <div class="mb-4">
+              <h6 class="text-primary mb-2">{{ field_labels.description }}</h6>
+              <div class="p-3 bg-light rounded border">
+                <div style="white-space: pre-wrap;">{{ submission.data.description }}</div>
+              </div>
+            </div>
+            {% endif %}
+
+            {% if submission.data.image_url %}
+            <div class="mb-4">
+              <h6 class="text-primary mb-2">{{ _('Image') }}</h6>
+              <div class="p-3 bg-light rounded border">
+                {% if submission.data.image_url.startswith('http') %}
+                <img src="{{ submission.data.image_url }}" alt="{{ _('Submission Image') }}" class="img-fluid rounded"
+                  style="max-width: 100%; height: auto;">
+                {% else %}
+                <img src="{{ h.url_for_static_or_external(submission.data.image_url) }}"
+                  alt="{{ _('Submission Image') }}" class="img-fluid rounded" style="max-width: 100%; height: auto;">
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
+
+
+            <!-- Usage Idea -->
+            {% if submission.data.usage_idea %}
+            <div class="mb-4">
+              <h6 class="text-primary mb-2">{{ field_labels.usage_idea }}</h6>
+              <div class="p-3 bg-light rounded border">
+                <div style="white-space: pre-wrap;">{{ submission.data.usage_idea }}</div>
+              </div>
+            </div>
+            {% endif %}
+
+            <!-- Additional Information -->
+            {% if submission.data.additional_information %}
+            <div class="mb-4">
+              <h6 class="text-primary mb-2">{{ field_labels.additional_information }}</h6>
+              <div class="p-3 bg-light rounded border">
+                <div style="white-space: pre-wrap;">{{ submission.data.additional_information }}</div>
+              </div>
+            </div>
+            {% endif %}
+
+            <!-- Showcase Permission -->
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.showcase_permission }}</h6>
+                <p class="mb-0">
+                  {{ submission.data.showcase_permission or _('Not specified') }}
+                  {% if submission.data.showcase_permission == 'Others' and submission.data.showcase_permission_other %}
+                  <br><small class="text-muted mt-2 d-block">{{ submission.data.showcase_permission_other }}</small>
+                  {% endif %}
+                </p>
+              </div>
+              <div class="col-md-6 mb-3">
+                <h6 class="text-primary mb-2">{{ field_labels.contact_permission }}</h6>
+                <p class="mb-0">
+                  {% if submission.data.contact_permission %}
+                  <span class="badge bg-success">{{ _('Yes') }}</span>
+                  {% else %}
+                  <span class="badge bg-secondary">{{ _('No') }}</span>
+                  {% endif %}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="d-flex justify-content-between gap-2">
+          <a href="{{ h.url_for('data_reuse.list_data_reuse') }}" class="btn btn-secondary">
+            <i class="fa fa-arrow-left"></i> {{ _('Back to List') }}
+          </a>
+
+          {% if h.check_access('data_reuse_delete', {'id': submission.id}) %}
+          <form method="post" action="{{ h.url_for('data_reuse.delete_data_reuse', submission_id=submission.id) }}"
+            class="delete-form d-inline">
+            <a href="{{ h.url_for('data_reuse.delete_data_reuse', submission_id=submission.id) }}" type="submit"
+              class="btn btn-danger" data-module="confirm-action" data-module-content="{{ _('Are you sure?') }}">
+              <i class="fa fa-trash"></i> {{ _('Delete') }}
+            </a>
+          </form>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block secondary_content %}
+<aside class="module module-narrow module-shallow">
+  <h2 class="module-heading">
+    <i class="fa fa-info-circle"></i>
+    {{ _('Help') }}
+  </h2>
+  <div class="module-content">
+    <p class="small">{{ _('This page shows a single data usage submission. If you have questions, contact the data
+      team.') }}</p>
+  </div>
+</aside>
+{% endblock %}

@@ -5,12 +5,13 @@ sse-js:
     - dataset-modal.js
     - restricted-field.js
     - resource-geospatial.js
+    - data-reuse-form.js
   extra:
     preload:
       - base/main
 
-# sse-css:
-#   filter: cssrewrite
-#   output: ckanext-sse/%(version)s-sse.css
-#   contents:
-#     - css/sse.css
+sse-css:
+  filter: cssrewrite
+  output: ckanext-sse/%(version)s-sse.css
+  contents:
+    - style.css

@@ -1,13 +1,19 @@
-from datetime import datetime
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum
+from datetime import datetime, date
+from collections import OrderedDict
+
+from sqlalchemy import orm, Column, String, Text, DateTime, ForeignKey, Enum
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import Unicode
 from sqlalchemy.orm import relationship
 from ckan.model.meta import metadata, Session
 from ckan.model.types import make_uuid
 from sqlalchemy.ext.declarative import declarative_base
+import ckan.plugins.toolkit as tk
 
 from ckan.model.package import Package
 from ckan.model.group import Group
 from ckan.model.user import User
+import ckan.model.domain_object as DomainObject
 
 Base = declarative_base(metadata=metadata)
 
@@ -16,25 +22,30 @@ class PackageAccessRequest(Base):
     """
     Custom table for your plugin to manage Package access requests.
     """
-    __tablename__ = 'package_access_request'
+
+    __tablename__ = "package_access_request"
 
     id = Column(String(60), primary_key=True, default=make_uuid)
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
-    status = Column(Enum('pending', 'approved', 'rejected', 'revoked',
-                    name="request_status_enum"), default='pending', nullable=False)
+    status = Column(
+        Enum("pending", "approved", "rejected", "revoked", name="request_status_enum"),
+        default="pending",
+        nullable=False,
+    )
     rejection_message = Column(Text)
-    approved_or_rejected_by_user_id = Column(String(60), ForeignKey('user.id'))
+    approved_or_rejected_by_user_id = Column(String(60), ForeignKey("user.id"))
 
-    package_id = Column(String(60), ForeignKey('package.id'), nullable=False)
-    org_id = Column(String(60), ForeignKey('group.id'), nullable=False)
-    user_id = Column(String(60), ForeignKey('user.id'), nullable=False)
+    package_id = Column(String(60), ForeignKey("package.id"), nullable=False)
+    org_id = Column(String(60), ForeignKey("group.id"), nullable=False)
+    user_id = Column(String(60), ForeignKey("user.id"), nullable=False)
 
     package = relationship(Package, foreign_keys=[package_id])
     organization = relationship(Group, foreign_keys=[org_id])
     user = relationship(User, foreign_keys=[user_id])
     approved_or_rejected_by_user = relationship(
-        User, foreign_keys=[approved_or_rejected_by_user_id])
+        User, foreign_keys=[approved_or_rejected_by_user_id]
+    )
 
     def __repr__(self):
         return f"<PackageAccessRequest {self.id}>"
@@ -55,7 +66,7 @@ class PackageAccessRequest(Base):
             user_id=user_id,
             org_id=org_id,
             message=message,
-            status='pending'
+            status="pending",
         )
         Session.add(request)
         Session.commit()
@@ -79,7 +90,11 @@ class PackageAccessRequest(Base):
     @classmethod
     def get_by_package_user_and_status(cls, package_id, user_id, status):
         """Get all PackageAccessRequests for a package, status and user"""
-        return Session.query(cls).filter_by(package_id=package_id, user_id=user_id, status=status).all()
+        return (
+            Session.query(cls)
+            .filter_by(package_id=package_id, user_id=user_id, status=status)
+            .all()
+        )
 
     @classmethod
     def get_by_user(cls, user_id):
@@ -94,11 +109,12 @@ class PackageAccessRequest(Base):
     @classmethod
     def get_by_orgs(cls, org_ids):
         """Get all PackageAccessRequests from a user"""
-        return Session.query(cls).filter_by(PackageAccessRequest.org_id.in_(org_ids)).all()
+        return (
+            Session.query(cls).filter_by(PackageAccessRequest.org_id.in_(org_ids)).all()
+        )
 
     @classmethod
     def delete(cls, request_id):
-        PackageAccessRequest.US
         """Delete a PackageAccessRequest by ID"""
         request = cls.get(request_id)
         if request:
@@ -118,7 +134,13 @@ class PackageAccessRequest(Base):
         return None
 
     @classmethod
-    def update_status(cls, request_id, new_status, rejection_message=None, approved_or_rejected_by_user_id=None):
+    def update_status(
+        cls,
+        request_id,
+        new_status,
+        rejection_message=None,
+        approved_or_rejected_by_user_id=None,
+    ):
         """Update a PackageAccessRequest's status and optionally rejection message and approved_or_rejected_by_user_id"""
         request = cls.get(request_id)
         if request:
@@ -127,4 +149,184 @@ class PackageAccessRequest(Base):
             request.approved_or_rejected_by_user_id = approved_or_rejected_by_user_id
             Session.commit()
             return request
+        return None
+
+
+class FormResponse(DomainObject.DomainObject, tk.BaseModel):
+    """
+    Generic model for storing dynamic form submissions using JSONB.
+    This can handle usage ideas, usage example feedback forms, or any other dynamic forms response.
+    """
+
+    __tablename__ = "form_response"
+
+    id = Column(Unicode(64), primary_key=True, default=make_uuid)
+    type = Column(String(100), nullable=False)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+    data = Column(JSONB, nullable=False)
+    user_id = Column(String(60), ForeignKey("user.id"), nullable=True)
+    state = Column(String(100), nullable=False)
+    package_id = Column(String(60), ForeignKey("package.id"), nullable=True)
+    user = relationship(User, foreign_keys=[user_id])
+    package = relationship(Package, foreign_keys=[package_id])
+
+    def as_dict(self):
+        _dict = OrderedDict()
+        table = orm.class_mapper(self.__class__).mapped_table
+        for col in table.c:
+            val = getattr(self, col.name)
+            if isinstance(val, date):
+                val = str(val)
+            if isinstance(val, datetime):
+                val = val.isoformat()
+            _dict[col.name] = val
+        return _dict
+
+    @classmethod
+    def create(cls, **kwargs):
+        """
+        Generic create method for any form type.
+
+        :param form_type: Type of form (e.g., 'usage_idea', 'feedback', 'contact')
+        :param form_data: Dictionary containing the form data
+        :param user_id: Optional user ID
+        :param package_id: Optional package/dataset ID
+        :return: The created FormResponse object
+        """
+        submission = cls(**kwargs)
+        Session.add(submission)
+        Session.commit()
+        return submission
+
+    @classmethod
+    def get(cls, id, include_all=False):
+        """Get a FormResponse by ID"""
+        if include_all:
+            return Session.query(cls).get(id)
+        else:
+            # By default, only return approved submissions
+            return Session.query(cls).filter_by(state="approved").get(id)
+
+    @classmethod
+    def get_all(cls, include_all=False):
+        """Get all FormResponses"""
+        if include_all:
+            return Session.query(cls).order_by(cls.submitted_at.desc()).all()
+        else:
+            # By default, only return approved submissions
+            return (
+                Session.query(cls)
+                .filter_by(state="approved")
+                .order_by(cls.submitted_at.desc())
+                .all()
+            )
+
+    @classmethod
+    def get_by_form_type(cls, form_type, include_all=False):
+        """Get all submissions by form type"""
+        if include_all:
+            return Session.query(cls).filter_by(type=form_type).all()
+        else:
+            return Session.query(cls).filter_by(type=form_type, state="approved").all()
+
+    @classmethod
+    def get_by_user(cls, user_id, include_all=False):
+        """Get all submissions from a specific user"""
+        if include_all:
+            return Session.query(cls).filter_by(user_id=user_id).all()
+        else:
+            return Session.query(cls).filter_by(user_id=user_id, state="approved").all()
+
+    @classmethod
+    def get_by_package(cls, package_id, include_all=False):
+        """Get all submissions related to a specific package/dataset"""
+        if include_all:
+            return Session.query(cls).filter_by(package_id=package_id).all()
+        else:
+            return (
+                Session.query(cls)
+                .filter_by(package_id=package_id, state="approved")
+                .all()
+            )
+
+    @classmethod
+    def get_by_data_field(cls, form_type, field_name, field_value, include_all=False):
+        """
+        Query submissions by a specific field in the JSONB data.
+
+        Example: get_by_data_field('usage_idea', 'usage_type', 'Example')
+        """
+        if include_all:
+            return (
+                Session.query(cls)
+                .filter(
+                    cls.type == form_type, cls.data[field_name].astext == field_value
+                )
+                .all()
+            )
+        else:
+            return (
+                Session.query(cls)
+                .filter(
+                    cls.type == form_type,
+                    cls.data[field_name].astext == field_value,
+                    cls.state == "approved",
+                )
+                .all()
+            )
+
+    @classmethod
+    def get_filter_by(
+        cls, form_type=None, user_id=None, package_id=None, include_all=False
+    ):
+        """
+        Get submissions filtered by form type, user ID, and/or package ID.
+
+        :param form_type: Optional form type to filter by
+        :param user_id: Optional user ID to filter by
+        :param package_id: Optional package ID to filter by
+        :param include_all: If True, include all submissions regardless of state
+        :return: List of FormResponse objects matching the criteria
+        """
+        query = Session.query(cls)
+        if form_type:
+            query = query.filter_by(type=form_type)
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        if package_id:
+            query = query.filter_by(package_id=package_id)
+        if not include_all:
+            query = query.filter_by(state="approved")
+        return query.all()
+
+    @classmethod
+    def delete(cls, submission_id):
+        """Delete a FormResponse by ID"""
+        submission = cls.get(submission_id, include_all=True)
+        if submission:
+            Session.delete(submission)
+            Session.commit()
+            return True
+        return False
+
+    @classmethod
+    def update_data(cls, submission_id, new_data):
+        """Update the JSONB data of a submission"""
+        submission = cls.get(submission_id, include_all=True)
+        if submission:
+            submission.data = new_data
+            Session.commit()
+            return submission
+        return None
+
+    @classmethod
+    def update_data_field(cls, submission_id, field_name, field_value):
+        """Update a specific field in the JSONB data"""
+        submission = cls.get(submission_id, include_all=True)
+        if submission:
+            data = submission.data.copy() if submission.data else {}
+            data[field_name] = field_value
+            submission.data = data
+            Session.commit()
+            return submission
         return None

@@ -64,4 +64,4 @@ def data_reuse_delete(context, data_dict):
     
     Only sysadmins can delete submissions.
     """
-    return {'success': True}
+    return {'success': False}

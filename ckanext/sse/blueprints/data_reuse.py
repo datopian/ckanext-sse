@@ -170,6 +170,7 @@ def list_data_reuse():
 
     try:
         # Get submissions
+        context.update({"include_all": True})
         result = tk.get_action("data_reuse_list")(context, filter_params)
         submissions = result.get("data", [])
         total_count = result.get("total_count", 0)
@@ -257,6 +258,7 @@ def view_data_reuse(submission_id):
     context = _get_context()
 
     try:
+        context.update({"include_all": True})
         submission = tk.get_action("data_reuse_show")(context, {"id": submission_id})
 
         # Get package details if available
@@ -276,7 +278,7 @@ def view_data_reuse(submission_id):
 
         return tk.render("data_reuse/view_submission.html", extra_vars=extra_vars)
 
-    except tk.NotFound:
+    except tk.ObjectNotFound:
         return tk.abort(404, tk._("Submission not found"))
     except tk.NotAuthorized:
         return tk.abort(403, tk._("Not authorized to view this submission"))
@@ -294,7 +296,7 @@ def delete_data_reuse(submission_id):
     try:
         tk.get_action("data_reuse_delete")(context, {"id": submission_id})
         tk.h.flash_success(tk._("Submission deleted successfully"))
-    except tk.NotFound:
+    except tk.ObjectNotFound:
         tk.h.flash_error(tk._("Submission not found"))
     except tk.NotAuthorized:
         tk.h.flash_error(tk._("Not authorized to delete this submission"))

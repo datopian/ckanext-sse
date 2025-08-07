@@ -652,10 +652,11 @@ def data_reuse_create(context, data_dict):
             )
 
         submission = FormResponse.create(
-            form_type=data_dict["reuse_type"],
-            form_data=form_data,
+            type=data_dict["reuse_type"],
+            data=form_data,
             user_id=data_dict.get("user_id"),
             package_id=data_dict["package_id"],
+            state="pending",
         )
 
         return {
@@ -691,12 +692,12 @@ def data_reuse_list(context, data_dict):
     reuse_type = data_dict.get("reuse_type")
     limit = int(data_dict.get("limit", 100))
     offset = int(data_dict.get("offset", 0))
+    include_all = context.get("include_all", False)
 
-    # Get both new 'data_reuse' and legacy 'usage_idea' submissions
     if reuse_type:
-        submissions = FormResponse.get_by_form_type(reuse_type)
+        submissions = FormResponse.get_by_form_type(reuse_type, include_all=include_all)
     else:
-        submissions = FormResponse.get_all()
+        submissions = FormResponse.get_all(include_all=include_all)
 
     total_count = len(submissions)
     submissions = submissions[offset : offset + limit]
@@ -722,12 +723,15 @@ def data_reuse_show(context, data_dict):
     :return: The data reuse submission details
     """
     tk.check_access("data_reuse_show", context, data_dict)
+    include_all = context.get("include_all", False) or data_dict.get(
+        "include_all", False
+    )
 
     submission_id = data_dict.get("id")
     if not submission_id:
         raise tk.ValidationError("Field 'id' is required")
 
-    submission = FormResponse.get(submission_id)
+    submission = FormResponse.get(submission_id, include_all=include_all)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 

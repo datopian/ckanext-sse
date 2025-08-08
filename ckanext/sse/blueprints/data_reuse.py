@@ -311,7 +311,15 @@ def reject_data_reuse(submission_id):
     """Reject a specific data reuse submission"""
     context = _get_context()
     try:
-        tk.get_action("data_reuse_patch")(context, {"id": submission_id, "state": "rejected"})
+        # Get feedback from form
+        feedback = tk.request.form.get("feedback", "")
+        
+        # Update submission with feedback
+        submission_data = {"id": submission_id, "state": "rejected"}
+        if feedback:
+            submission_data["feedback"] = feedback
+            
+        tk.get_action("data_reuse_patch")(context, submission_data)
         tk.h.flash_success(tk._("Submission rejected"))
     except tk.NotAuthorized:
         tk.h.flash_error(tk._("Not authorized to reject submissions"))

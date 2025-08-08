@@ -393,7 +393,7 @@ def is_user_id_present_in_the_dict_list(user_id, list):
     return any(user_id == value for dict in list for value in dict.values())
 
 
-def resuse_email_notification(resuse_data, _type):
+def resuse_email_notification(resuse_data, _type, feedback=None):
     """
     Send email notification when a data reuse submission status changes.
 
@@ -422,9 +422,16 @@ def resuse_email_notification(resuse_data, _type):
             log.warning(f"No email address found for submission {resuse_data['id']}")
             return False
 
-        resue_type = resuse_data["type"]
+        if _type == "rejected":
+            dataset_dict = toolkit.get_action("package_show")(
+                {"ignore_auth": True}, {"id": resuse_data["package_id"]})
+        else:
+            dataset_dict = {}
+
         for email in notification_email:
             extra_vars = { 
+                "feedback": feedback,
+                "dataset_title": dataset_dict.get("title", ""),
                 "admin_name": email['name'],
                 "site_title": os.environ.get("CKAN_FRONTEND_SITE_TITLE")
                 or config.get("ckan.site_title"),

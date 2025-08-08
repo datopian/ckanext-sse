@@ -66,3 +66,13 @@ def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, 
         "id": [ignore_missing, unicode_safe], 
     }
     return schema
+
+
+@schema.validator_args
+def data_reuse_patch_schema(not_empty, ignore_missing, unicode_safe):
+    """Schema for patching data reuse submissions (approve/reject only)."""
+    return {
+        "id": [not_empty, unicode_safe],
+        "state": [not_empty, choice_validator(['pending', 'approved', 'rejected'])],
+        "feedback": [ignore_missing, unicode_safe],
+    }

@@ -26,11 +26,13 @@
                 <i class="fa fa-check"></i> {{ _('Approve') }}
               </button>
             </form>
-            <form method="post" action="{{ h.url_for('data_reuse.reject_data_reuse', submission_id=submission.id) }}" class="d-inline ms-2">
-              <button type="submit" class="btn btn-warning btn-sm">
+            
+            <button type="button" class="btn btn-warning btn-sm ms-2"   
+              data-module="data-reuse-rejection-modal" 
+              data-submission-id="{{ submission.id }}"
+              data-reject-url="{{ h.url_for('data_reuse.reject_data_reuse', submission_id=submission.id) }}">
                 <i class="fa fa-times"></i> {{ _('Reject') }}
-              </button>
-            </form>
+            </button>
           {% endif %}
         </div>
       </div>
@@ -183,6 +185,7 @@
   </div>
 </div>
 {% endblock %}
+
 
 {% block secondary_content %}
 <aside class="module module-narrow module-shallow">

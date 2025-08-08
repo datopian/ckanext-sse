@@ -6,18 +6,20 @@ We appreciate your interest in sharing your data reuse experience with us. Unfor
 
 We encourage you to review and update your submission based on the feedback provided below:
 
-Feedback:
-{{ data.data.feedback or "No feedback provided" }}
+===============================================================================
+FEEDBACK:
+{{ feedback or "No feedback provided" }}
+===============================================================================
 
-==========================================
+===============================================================================
 YOUR ORIGINAL SUBMISSION
-==========================================
 
-Below is a copy of what you submitted. You can copy and paste this information when creating your new submission:
+Below is a copy of what you submitted. You can copy and paste this information and create a new submission:
 
 Full Name: {{ data.data.full_name or "" }}
 Email Address: {{ data.data.email_address or "" }}
 Job Title: {{ data.data.job_title or "" }}
+Dataset Title: {{ dataset_title or "" }}
 Organisation Name: {{ data.data.organisation_name or "" }}
 Organisation Type: {{ data.data.organisation_type or "" }}
 
@@ -32,12 +34,10 @@ Additional Information:
 {{ data.data.additional_information }}
 {% endif %}
 {% if data.data.image_url %}Image URL: {{ data.data.image_url }}{% endif %}
-{% if data.data.link %}Link: {{ data.data.link }}{% endif %}
 Showcase Permission: {{ data.data.showcase_permission or "" }}
 {% if data.data.showcase_permission_other %}Showcase Permission Other: {{ data.data.showcase_permission_other }}{% endif %}
 Contact Permission: {% if data.data.contact_permission %}Yes{% else %}No{% endif %}
-
-==========================================
+===============================================================================
 
 Thank you for your understanding.
 

@@ -809,6 +809,7 @@ def data_reuse_patch(context, data_dict):
     tk.check_access("data_reuse_update", context, data_dict)
 
     id = tk.get_or_bust(data_dict, "id")
+    feedback = data_dict.get("feedback")
 
     existing_dict = tk.get_action("data_reuse_show")(
         context, {"id": id, "include_all": True}
@@ -821,7 +822,7 @@ def data_reuse_patch(context, data_dict):
 
     submission = FormResponse.update(id, **patched_dict)
     if old_state == "pending" and new_state in ["approved", "rejected"]:
-        resuse_email_notification(submission.as_dict(), _type=new_state)
+        resuse_email_notification(submission.as_dict(), _type=new_state, feedback=feedback)
 
     return submission.as_dict()
 

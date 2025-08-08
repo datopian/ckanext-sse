@@ -685,14 +685,18 @@ def data_reuse_list(context, data_dict):
     :param showcase_approved: Optional filter for showcase approved submissions
     :param limit: Optional limit (default 100)
     :param offset: Optional offset (default 0)
+    :param include_dataset Optional to include the dataset dict
     :return: List of data reuse submissions
+
+
     """
     tk.check_access("data_reuse_list", context, data_dict)
 
     reuse_type = data_dict.get("reuse_type")
     limit = int(data_dict.get("limit", 100))
     offset = int(data_dict.get("offset", 0))
-    include_all = context.get("include_all", False)
+    include_all = tk.asbool(data_dict.get("include_all", False))
+    include_dataset = tk.asbool(data_dict.get("include_dataset", False))
 
     if reuse_type:
         submissions = FormResponse.get_by_form_type(reuse_type, include_all=include_all)
@@ -703,7 +707,12 @@ def data_reuse_list(context, data_dict):
     submissions = submissions[offset : offset + limit]
     result = []
     for submission in submissions:
-        result.append(submission.as_dict())
+        submission_dict = submission.as_dict()
+        if include_dataset and submission.package_id:
+            submission_dict["dataset"] = tk.get_action("package_show")(
+                context, {"id": submission.package_id}
+            )
+        result.append(submission_dict)
 
     return {
         "data": result,
@@ -723,9 +732,8 @@ def data_reuse_show(context, data_dict):
     :return: The data reuse submission details
     """
     tk.check_access("data_reuse_show", context, data_dict)
-    include_all = context.get("include_all", False) or data_dict.get(
-        "include_all", False
-    )
+    include_all = tk.asbool(data_dict.get("include_all", False))
+    include_dataset = tk.asbool(data_dict.get("include_dataset", False))
 
     submission_id = data_dict.get("id")
     if not submission_id:
@@ -735,7 +743,12 @@ def data_reuse_show(context, data_dict):
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
-    return submission.as_dict()
+    submission_dict = submission.as_dict()
+    if include_dataset and submission.package_id:
+        submission_dict["dataset"] = tk.get_action("package_show")(
+            context, {"id": submission.package_id}
+        )
+    return submission_dict
 
 
 @logic.validate(data_reuse_schema)
@@ -752,7 +765,7 @@ def data_reuse_update(context, data_dict):
     if not submission_id:
         raise tk.ValidationError("Field 'id' is required")
 
-    submission = FormResponse.get(submission_id)
+    submission = FormResponse.get(submission_id, include_all=True)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
@@ -775,11 +788,11 @@ def data_reuse_update(context, data_dict):
                 f"{tk.config.get('ckan.site_url')}/uploads/reuse/{data_dict['image_url']}"
             )
 
-        updated_submission = FormResponse.update_data(submission_id, form_data)
+        updated_submission = FormResponse.update(submission_id, **form_data)
 
         return {
             "id": updated_submission.id,
-            "form_type": updated_submission.type,
+            "type": updated_submission.type,
             "data": updated_submission.data,
             "submitted_at": updated_submission.submitted_at.isoformat(),
             "user_id": updated_submission.user_id,
@@ -789,6 +802,30 @@ def data_reuse_update(context, data_dict):
     except Exception as e:
         log.error(f"Error updating data reuse submission: {str(e)}")
         raise tk.ValidationError(f"Failed to update data reuse submission: {str(e)}")
+
+
+@logic.validate(data_reuse_schema)
+def data_reuse_patch(context, data_dict):
+    """
+    Patch an existing data reuse submission.
+    """
+    tk.check_access("data_reuse_patch", context, data_dict)
+
+    submission_id = data_dict.get("id")
+    if not submission_id:
+        raise tk.ValidationError("Field 'id' is required")
+
+    submission = FormResponse.get(submission_id)
+    if not submission:
+        raise tk.ObjectNotFound("Data reuse submission not found")
+
+    try:
+        updated_submission = FormResponse.update(submission_id, **data_dict)
+        return updated_submission.as_dict()
+
+    except Exception as e:
+        log.error(f"Error patching data reuse submission: {str(e)}")
+        raise tk.ValidationError(f"Failed to patch data reuse submission: {str(e)}")
 
 
 def data_reuse_delete(context, data_dict):

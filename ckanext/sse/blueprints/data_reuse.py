@@ -167,10 +167,11 @@ def list_data_reuse():
 
     filter_params["offset"] = offset
     filter_params["limit"] = limit
+    filter_params["include_all"] = True
 
     try:
         # Get submissions
-        context.update({"include_all": True})
+        context.update({"": True})
         result = tk.get_action("data_reuse_list")(context, filter_params)
         submissions = result.get("data", [])
         total_count = result.get("total_count", 0)
@@ -258,8 +259,14 @@ def view_data_reuse(submission_id):
     context = _get_context()
 
     try:
-        context.update({"include_all": True})
-        submission = tk.get_action("data_reuse_show")(context, {"id": submission_id})
+
+        submission = tk.get_action("data_reuse_show")(
+            context,
+            {
+                "id": submission_id,
+                "include_all": True,
+            },
+        )
 
         # Get package details if available
         package = None

@@ -758,11 +758,9 @@ def data_reuse_update(context, data_dict):
     """
     tk.check_access("data_reuse_update", context, data_dict)
 
-    submission_id = data_dict.get("id")
-    if not submission_id:
-        raise tk.ValidationError("Field 'id' is required")
+    id = tk.get_or_bust(data_dict, "id")
 
-    submission = FormResponse.get(submission_id, include_all=True)
+    submission = FormResponse.get(id, include_all=True)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
@@ -785,7 +783,7 @@ def data_reuse_update(context, data_dict):
                 f"{tk.config.get('ckan.site_url')}/uploads/reuse/{data_dict['image_url']}"
             )
 
-        updated_submission = FormResponse.update(submission_id, **form_data)
+        updated_submission = FormResponse.update(id, **form_data)
 
         return {
             "id": updated_submission.id,
@@ -827,19 +825,17 @@ def data_reuse_delete(context, data_dict):
     """
     tk.check_access("data_reuse_delete", context, data_dict)
 
-    submission_id = data_dict.get("id")
-    if not submission_id:
-        raise tk.ValidationError("Field 'id' is required")
+    id = tk.get_or_bust(data_dict, "id")
 
-    submission = FormResponse.get(submission_id)
+    submission = FormResponse.get(id)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
     try:
-        success = FormResponse.delete(submission_id)
+        success = FormResponse.delete(id)
         if success:
             return {
-                "id": submission_id,
+                "id": id,
                 "success": True,
                 "message": "Data reuse submission deleted successfully",
             }

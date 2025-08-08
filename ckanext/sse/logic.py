@@ -4,7 +4,7 @@ from __future__ import unicode_literals
 import ckan.authz as authz
 from ckan.common import _
 from ckan.model.user import AnonymousUser
-
+from ckan.views.admin import _get_sysadmins as sysadmins
 from ckan.lib.base import render
 import ckan.lib.mailer as mailer
 import ckan.logic as logic
@@ -388,6 +388,69 @@ def mail_rejected_user(data, rejection_message: str, status):
 
 
 def is_user_id_present_in_the_dict_list(user_id, list):
-        if not list or len(list) == 0:
+    if not list or len(list) == 0:
+        return False
+    return any(user_id == value for dict in list for value in dict.values())
+
+
+def resuse_email_notification(resuse_data, _type):
+    """
+    Send email notification when a data reuse submission status changes.
+
+    Args:
+        submission: The FormResponse object that was updated
+        _type: The new status ('approved' or 'rejected or 'new')
+    """
+    try:
+
+        notification_email = []
+
+        if _type == "new":
+            for sysadmin in sysadmins():
+                if sysadmin.name != "default":
+                    notification_email.append({
+                        'email': sysadmin.email,
+                        'name': sysadmin.fullname or sysadmin.name,
+                    })
+        else:
+            notification_email.append({
+                'email': resuse_data["data"].get("email_address"),
+                'name': resuse_data["data"].get("full_name", "Submitter"),
+            })
+        
+        if not notification_email:
+            log.warning(f"No email address found for submission {resuse_data['id']}")
             return False
-        return any(user_id == value for dict in list for value in dict.values())
+
+        resue_type = resuse_data["type"]
+        for email in notification_email:
+            extra_vars = { 
+                "admin_name": email['name'],
+                "site_title": os.environ.get("CKAN_FRONTEND_SITE_TITLE")
+                or config.get("ckan.site_title"),
+                "site_url": os.environ.get("CKAN_FRONTEND_SITE_URL")
+                or config.get("ckan.site_url"),
+                "ckan_site_url": config.get("ckan.site_url"),
+                "data": resuse_data,
+            }
+            if _type == "approved":
+                template = "data_reuse/emails/submission_approved.txt"
+                subject = _("Your data reuse submission has been approved")
+            elif _type == "rejected":
+                template = "data_reuse/emails/submission_rejected.txt"
+                subject = _("Your data reuse submission has been rejected")
+            elif _type == "new":
+                template = "data_reuse/emails/submission_new.txt"
+                subject = _("New data reuse submission has been received")
+            
+            body = render(template, extra_vars)
+            try:
+                mailer.mail_recipient(email['name'], email['email'], subject, body)
+            except Exception as e:
+                log.warning(f"Failed to send {_type} email for submission {resuse_data['id']}: {e}")
+                pass
+        return True
+
+    except Exception as e:
+        log.warning(f"Failed to send {_type} email for submission {resuse_data['id']}: {e}")
+        return False

@@ -1,0 +1,19 @@
+Dear {{ admin_name }},
+
+A new data reuse submission has been received and requires your review.
+
+Submission Details:
+- Title: {{ data.data.title or "Untitled" }}
+- Type: {{ data.type | capitalize }}
+- Submitted: {{ data.submitted_at }}
+- Submitter: {{ data.data.full_name or "Anonymous" }}
+- Email: {{ data.data.email_address or "No email provided" }}
+
+Please review this submission and take appropriate action (approve/reject) through the admin interface.
+You can view the full submission details at: {{ ckan_site_url }}/dataset/reuse/view/{{ data.id }}
+
+Best regards,
+The {{ site_title }} Team
+
+---
+This email was sent from {{ site_title }} ({{ ckan_site_url }})

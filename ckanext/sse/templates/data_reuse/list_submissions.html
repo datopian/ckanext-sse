@@ -23,7 +23,7 @@
               <select id="reuse_type" name="reuse_type" class="form-select">
                 <option value="">{{ _('All Types') }}</option>
                 {% for type in reuse_type_options %}
-                <option value="{{ type }}" {% if submission_type==type %} selected{% endif %}>{{ type }}</option>
+                <option value="{{ type }}" {% if reuse_type==type %} selected{% endif %}>{{ type | capitalize }}</option>
                 {% endfor %}
               </select>
             </div>

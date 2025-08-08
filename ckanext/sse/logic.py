@@ -393,7 +393,7 @@ def is_user_id_present_in_the_dict_list(user_id, list):
     return any(user_id == value for dict in list for value in dict.values())
 
 
-def resuse_email_notification(resuse_data, _type, feedback=None):
+def reuse_email_notification(reuse_data, _type, feedback=None):
     """
     Send email notification when a data reuse submission status changes.
 
@@ -414,17 +414,17 @@ def resuse_email_notification(resuse_data, _type, feedback=None):
                     })
         else:
             notification_email.append({
-                'email': resuse_data["data"].get("email_address"),
-                'name': resuse_data["data"].get("full_name", "Submitter"),
+                'email': reuse_data["data"].get("email_address"),
+                'name': reuse_data["data"].get("full_name", "Submitter"),
             })
         
         if not notification_email:
-            log.warning(f"No email address found for submission {resuse_data['id']}")
+            log.warning(f"No email address found for submission {reuse_data['id']}")
             return False
 
         if _type == "rejected":
             dataset_dict = toolkit.get_action("package_show")(
-                {"ignore_auth": True}, {"id": resuse_data["package_id"]})
+                {"ignore_auth": True}, {"id": reuse_data["package_id"]})
         else:
             dataset_dict = {}
 
@@ -438,7 +438,7 @@ def resuse_email_notification(resuse_data, _type, feedback=None):
                 "site_url": os.environ.get("CKAN_FRONTEND_SITE_URL")
                 or config.get("ckan.site_url"),
                 "ckan_site_url": config.get("ckan.site_url"),
-                "data": resuse_data,
+                "data": reuse_data,
             }
             if _type == "approved":
                 template = "data_reuse/emails/submission_approved.txt"
@@ -454,10 +454,10 @@ def resuse_email_notification(resuse_data, _type, feedback=None):
             try:
                 mailer.mail_recipient(email['name'], email['email'], subject, body)
             except Exception as e:
-                log.warning(f"Failed to send {_type} email for submission {resuse_data['id']}: {e}")
+                log.warning(f"Failed to send {_type} email for submission {reuse_data['id']}: {e}")
                 pass
         return True
 
     except Exception as e:
-        log.warning(f"Failed to send {_type} email for submission {resuse_data['id']}: {e}")
+        log.warning(f"Failed to send {_type} email for submission {reuse_data['id']}: {e}")
         return False

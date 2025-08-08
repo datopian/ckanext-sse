@@ -18,7 +18,7 @@ from .schemas import package_request_access_schema, data_reuse_schema
 import os
 from ckanext.sse.logic import (
     is_user_id_present_in_the_dict_list,
-    resuse_email_notification,
+    reuse_email_notification,
 )
 
 from logging import getLogger
@@ -661,7 +661,7 @@ def data_reuse_create(context, data_dict):
             package_id=data_dict["package_id"],
             state="pending",
         )
-        resuse_email_notification(submission.as_dict(), _type="new")
+        reuse_email_notification(submission.as_dict(), _type="new")
         return {
             "id": submission.id,
             "form_type": submission.type,
@@ -822,7 +822,7 @@ def data_reuse_patch(context, data_dict):
 
     submission = FormResponse.update(id, **patched_dict)
     if old_state == "pending" and new_state in ["approved", "rejected"]:
-        resuse_email_notification(submission.as_dict(), _type=new_state, feedback=feedback)
+        reuse_email_notification(submission.as_dict(), _type=new_state, feedback=feedback)
 
     return submission.as_dict()
 

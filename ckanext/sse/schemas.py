@@ -62,6 +62,7 @@ def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, 
         'image_upload': [ignore_missing],
         'image_display_url': [ignore_missing, unicode_safe],
         "user_id": [ignore_missing, unicode_safe],
+        "state": [ignore_missing, choice_validator(['pending', 'approved', 'rejected'])],
         "id": [ignore_missing, unicode_safe], 
     }
     return schema

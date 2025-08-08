@@ -732,14 +732,11 @@ def data_reuse_show(context, data_dict):
     :return: The data reuse submission details
     """
     tk.check_access("data_reuse_show", context, data_dict)
+    id = tk.get_or_bust(data_dict, "id")
     include_all = tk.asbool(data_dict.get("include_all", False))
     include_dataset = tk.asbool(data_dict.get("include_dataset", False))
 
-    submission_id = data_dict.get("id")
-    if not submission_id:
-        raise tk.ValidationError("Field 'id' is required")
-
-    submission = FormResponse.get(submission_id, include_all=include_all)
+    submission = FormResponse.get(id, include_all=include_all)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
@@ -804,28 +801,21 @@ def data_reuse_update(context, data_dict):
         raise tk.ValidationError(f"Failed to update data reuse submission: {str(e)}")
 
 
-@logic.validate(data_reuse_schema)
 def data_reuse_patch(context, data_dict):
     """
     Patch an existing data reuse submission.
     """
-    tk.check_access("data_reuse_patch", context, data_dict)
+    tk.check_access("data_reuse_update", context, data_dict)
 
-    submission_id = data_dict.get("id")
-    if not submission_id:
-        raise tk.ValidationError("Field 'id' is required")
+    id = tk.get_or_bust(data_dict, "id")
 
-    submission = FormResponse.get(submission_id)
-    if not submission:
-        raise tk.ObjectNotFound("Data reuse submission not found")
+    existing_dict = tk.get_action("data_reuse_show")(
+        context, {"id": id, "include_all": True}
+    )
+    patched_dict = dict(existing_dict)
+    patched_dict.update(data_dict)
 
-    try:
-        updated_submission = FormResponse.update(submission_id, **data_dict)
-        return updated_submission.as_dict()
-
-    except Exception as e:
-        log.error(f"Error patching data reuse submission: {str(e)}")
-        raise tk.ValidationError(f"Failed to patch data reuse submission: {str(e)}")
+    return FormResponse.update(id, **patched_dict)
 
 
 def data_reuse_delete(context, data_dict):

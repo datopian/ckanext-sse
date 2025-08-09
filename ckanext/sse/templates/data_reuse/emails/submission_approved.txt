@@ -1,0 +1,22 @@
+Dear {{ data.data.full_name or "Data Reuse Submitter" }},
+
+Great news! Your data reuse submission has been approved and published on our platform.
+
+Submission Details:
+- Title: {{ data.data.title or "Untitled" }}
+- Type: {{ data.type | capitalize }}
+- Submitted: {{ data.submitted_at  }}
+
+{% if data.type == "example" %}
+Your usage example will now be visible on our platform and may be featured in our showcase of successful data reuse implementations. This helps inspire others in the community to explore similar applications of our data resources.
+{% elif data.type == "idea" %}
+Your shared idea will now be visible on our platform and may inspire others in the community to explore new ways of using our data resources. We appreciate your contribution to expanding the possibilities of data reuse.
+{% endif %}
+
+If you have any questions, please don't hesitate to contact us.
+
+Best regards,
+The {{ site_title }} Team
+
+---
+This email was sent from {{ site_title }} ({{ site_url }})

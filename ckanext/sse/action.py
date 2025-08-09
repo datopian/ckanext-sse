@@ -16,7 +16,10 @@ import random
 from .model import PackageAccessRequest, FormResponse
 from .schemas import package_request_access_schema, data_reuse_schema
 import os
-from ckanext.sse.logic import is_user_id_present_in_the_dict_list
+from ckanext.sse.logic import (
+    is_user_id_present_in_the_dict_list,
+    reuse_email_notification,
+)
 
 from logging import getLogger
 import ckan
@@ -658,7 +661,7 @@ def data_reuse_create(context, data_dict):
             package_id=data_dict["package_id"],
             state="pending",
         )
-
+        reuse_email_notification(submission.as_dict(), _type="new")
         return {
             "id": submission.id,
             "form_type": submission.type,
@@ -685,14 +688,18 @@ def data_reuse_list(context, data_dict):
     :param showcase_approved: Optional filter for showcase approved submissions
     :param limit: Optional limit (default 100)
     :param offset: Optional offset (default 0)
+    :param include_dataset Optional to include the dataset dict
     :return: List of data reuse submissions
+
+
     """
     tk.check_access("data_reuse_list", context, data_dict)
 
     reuse_type = data_dict.get("reuse_type")
     limit = int(data_dict.get("limit", 100))
     offset = int(data_dict.get("offset", 0))
-    include_all = context.get("include_all", False)
+    include_all = tk.asbool(data_dict.get("include_all", False))
+    include_dataset = tk.asbool(data_dict.get("include_dataset", False))
 
     if reuse_type:
         submissions = FormResponse.get_by_form_type(reuse_type, include_all=include_all)
@@ -703,7 +710,12 @@ def data_reuse_list(context, data_dict):
     submissions = submissions[offset : offset + limit]
     result = []
     for submission in submissions:
-        result.append(submission.as_dict())
+        submission_dict = submission.as_dict()
+        if include_dataset and submission.package_id:
+            submission_dict["dataset"] = tk.get_action("package_show")(
+                context, {"id": submission.package_id}
+            )
+        result.append(submission_dict)
 
     return {
         "data": result,
@@ -723,19 +735,20 @@ def data_reuse_show(context, data_dict):
     :return: The data reuse submission details
     """
     tk.check_access("data_reuse_show", context, data_dict)
-    include_all = context.get("include_all", False) or data_dict.get(
-        "include_all", False
-    )
+    id = tk.get_or_bust(data_dict, "id")
+    include_all = tk.asbool(data_dict.get("include_all", False))
+    include_dataset = tk.asbool(data_dict.get("include_dataset", False))
 
-    submission_id = data_dict.get("id")
-    if not submission_id:
-        raise tk.ValidationError("Field 'id' is required")
-
-    submission = FormResponse.get(submission_id, include_all=include_all)
+    submission = FormResponse.get(id, include_all=include_all)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
-    return submission.as_dict()
+    submission_dict = submission.as_dict()
+    if include_dataset and submission.package_id:
+        submission_dict["dataset"] = tk.get_action("package_show")(
+            context, {"id": submission.package_id}
+        )
+    return submission_dict
 
 
 @logic.validate(data_reuse_schema)
@@ -748,11 +761,9 @@ def data_reuse_update(context, data_dict):
     """
     tk.check_access("data_reuse_update", context, data_dict)
 
-    submission_id = data_dict.get("id")
-    if not submission_id:
-        raise tk.ValidationError("Field 'id' is required")
+    id = tk.get_or_bust(data_dict, "id")
 
-    submission = FormResponse.get(submission_id)
+    submission = FormResponse.get(id, include_all=True)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
@@ -775,11 +786,11 @@ def data_reuse_update(context, data_dict):
                 f"{tk.config.get('ckan.site_url')}/uploads/reuse/{data_dict['image_url']}"
             )
 
-        updated_submission = FormResponse.update_data(submission_id, form_data)
+        updated_submission = FormResponse.update(id, **form_data)
 
         return {
             "id": updated_submission.id,
-            "form_type": updated_submission.type,
+            "type": updated_submission.type,
             "data": updated_submission.data,
             "submitted_at": updated_submission.submitted_at.isoformat(),
             "user_id": updated_submission.user_id,
@@ -791,6 +802,31 @@ def data_reuse_update(context, data_dict):
         raise tk.ValidationError(f"Failed to update data reuse submission: {str(e)}")
 
 
+def data_reuse_patch(context, data_dict):
+    """
+    Patch an existing data reuse submission.
+    """
+    tk.check_access("data_reuse_update", context, data_dict)
+
+    id = tk.get_or_bust(data_dict, "id")
+    feedback = data_dict.get("feedback")
+
+    existing_dict = tk.get_action("data_reuse_show")(
+        context, {"id": id, "include_all": True}
+    )
+    patched_dict = dict(existing_dict)
+    patched_dict.update(data_dict)
+
+    old_state = existing_dict.get("state")
+    new_state = data_dict.get("state")
+
+    submission = FormResponse.update(id, **patched_dict)
+    if old_state == "pending" and new_state in ["approved", "rejected"]:
+        reuse_email_notification(submission.as_dict(), _type=new_state, feedback=feedback)
+
+    return submission.as_dict()
+
+
 def data_reuse_delete(context, data_dict):
     """
     Delete a data reuse submission.
@@ -800,19 +836,17 @@ def data_reuse_delete(context, data_dict):
     """
     tk.check_access("data_reuse_delete", context, data_dict)
 
-    submission_id = data_dict.get("id")
-    if not submission_id:
-        raise tk.ValidationError("Field 'id' is required")
+    id = tk.get_or_bust(data_dict, "id")
 
-    submission = FormResponse.get(submission_id)
+    submission = FormResponse.get(id)
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
     try:
-        success = FormResponse.delete(submission_id)
+        success = FormResponse.delete(id)
         if success:
             return {
-                "id": submission_id,
+                "id": id,
                 "success": True,
                 "message": "Data reuse submission deleted successfully",
             }

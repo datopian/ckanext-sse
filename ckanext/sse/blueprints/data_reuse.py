@@ -167,10 +167,11 @@ def list_data_reuse():
 
     filter_params["offset"] = offset
     filter_params["limit"] = limit
+    filter_params["include_all"] = True
 
     try:
         # Get submissions
-        context.update({"include_all": True})
+        context.update({"": True})
         result = tk.get_action("data_reuse_list")(context, filter_params)
         submissions = result.get("data", [])
         total_count = result.get("total_count", 0)
@@ -182,12 +183,6 @@ def list_data_reuse():
         all_submissions = tk.get_action("data_reuse_list")(context, {"limit": 1000})
         all_submission_data = all_submissions.get("data", [])
 
-        # Debug: log the submissions data
-        log.debug("Total submissions found: %s", len(all_submission_data))
-        for i, sub in enumerate(all_submission_data[:5]):  # Log first 5 for debugging
-            log.debug("Submission %s: %s", i, sub.get("submission_type"))
-
-        # Get unique submission types and sort them
         submission_types = list(
             set(
                 [
@@ -258,8 +253,14 @@ def view_data_reuse(submission_id):
     context = _get_context()
 
     try:
-        context.update({"include_all": True})
-        submission = tk.get_action("data_reuse_show")(context, {"id": submission_id})
+
+        submission = tk.get_action("data_reuse_show")(
+            context,
+            {
+                "id": submission_id,
+                "include_all": True,
+            },
+        )
 
         # Get package details if available
         package = None
@@ -286,6 +287,48 @@ def view_data_reuse(submission_id):
         log.error("Error viewing submission: %s", str(e))
         tk.h.flash_error(tk._("An error occurred while loading the submission"))
         return redirect(url_for("data_reuse.list_data_reuse"))
+
+
+@blueprint.route("/approve/<submission_id>", methods=["POST"])
+def approve_data_reuse(submission_id):
+    """Approve a specific data reuse submission"""
+    context = _get_context()
+    try:
+        tk.get_action("data_reuse_patch")(context, {"id": submission_id, "state": "approved"})
+        tk.h.flash_success(tk._("Submission approved"))
+    except tk.NotAuthorized:
+        tk.h.flash_error(tk._("Not authorized to approve submissions"))
+    except tk.ObjectNotFound:
+        tk.h.flash_error(tk._("Submission not found"))
+    except Exception as e:
+        log.error("Error approving submission: %s", str(e))
+        tk.h.flash_error(tk._("An error occurred while approving the submission"))
+    return redirect(url_for("data_reuse.list_data_reuse"))
+
+
+@blueprint.route("/reject/<submission_id>", methods=["POST"])
+def reject_data_reuse(submission_id):
+    """Reject a specific data reuse submission"""
+    context = _get_context()
+    try:
+        # Get feedback from form
+        feedback = tk.request.form.get("feedback", "")
+        
+        # Update submission with feedback
+        submission_data = {"id": submission_id, "state": "rejected"}
+        if feedback:
+            submission_data["feedback"] = feedback
+            
+        tk.get_action("data_reuse_patch")(context, submission_data)
+        tk.h.flash_success(tk._("Submission rejected"))
+    except tk.NotAuthorized:
+        tk.h.flash_error(tk._("Not authorized to reject submissions"))
+    except tk.ObjectNotFound:
+        tk.h.flash_error(tk._("Submission not found"))
+    except Exception as e:
+        log.error("Error rejecting submission: %s", str(e))
+        tk.h.flash_error(tk._("An error occurred while rejecting the submission"))
+    return redirect(url_for("data_reuse.list_data_reuse"))
 
 
 @blueprint.route("/delete/<submission_id>", methods=["POST"])

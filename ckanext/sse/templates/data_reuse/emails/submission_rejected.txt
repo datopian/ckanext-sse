@@ -1,0 +1,48 @@
+Dear {{ data.data.full_name or "Data Submitter" }},
+
+We regret to inform you that your data reuse submission has been rejected.
+
+We appreciate your interest in sharing your data reuse experience with us. Unfortunately, this particular submission requires updates to be considered for publication.
+
+We encourage you to review and update your submission based on the feedback provided below:
+
+===============================================================================
+FEEDBACK:
+{{ feedback or "No feedback provided" }}
+===============================================================================
+
+===============================================================================
+YOUR ORIGINAL SUBMISSION
+
+Below is a copy of what you submitted. You can copy and paste this information and create a new submission:
+
+Full Name: {{ data.data.full_name or "" }}
+Email Address: {{ data.data.email_address or "" }}
+Job Title: {{ data.data.job_title or "" }}
+Dataset Title: {{ dataset_title or "" }}
+Organisation Name: {{ data.data.organisation_name or "" }}
+Organisation Type: {{ data.data.organisation_type or "" }}
+
+Title: {{ data.data.title or "" }}
+Label: {{ data.data.label or "" }}
+{% if data.data.description %}
+Description:
+{{ data.data.description }}
+{% endif %}
+{% if data.data.additional_information %}
+Additional Information:
+{{ data.data.additional_information }}
+{% endif %}
+{% if data.data.image_url %}Image URL: {{ data.data.image_url }}{% endif %}
+Showcase Permission: {{ data.data.showcase_permission or "" }}
+{% if data.data.showcase_permission_other %}Showcase Permission Other: {{ data.data.showcase_permission_other }}{% endif %}
+Contact Permission: {% if data.data.contact_permission %}Yes{% else %}No{% endif %}
+===============================================================================
+
+Thank you for your understanding.
+
+Best regards,
+The {{ site_title }} Team
+
+---
+This email was sent from {{ site_title }} ({{ site_url }})

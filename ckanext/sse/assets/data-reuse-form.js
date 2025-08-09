@@ -101,3 +101,98 @@ this.ckan.module("data-reuse-form", function ($) {
     },
   };
 });
+
+
+ckan.module('data-reuse-rejection-modal', function($) {
+  return {
+    options: {
+      modalSelector: "#rejectModal",
+      feedbackSelector: "#feedback",
+      rejectUrl: null,
+    },
+    initialize: function() {
+      // Create modal dynamically if it doesn't exist
+      this.createModalIfNotExists();
+      
+      // Cache DOM elements
+      this.modal = $(this.options.modalSelector);
+      this.form = $(this.options.modalSelector + " form");
+      this.feedback = $(this.options.feedbackSelector);
+      
+      // Get submission ID and reject URL from the button element
+      this.submissionId = this.el.data("submission-id");
+      this.rejectUrl = this.el.data("reject-url");
+      
+      // Set up click handler for this button
+      this.el.on("click", $.proxy(this.handleButtonClick, this));
+      
+      // Set up event listeners for modal
+      this.modal.on("show.bs.modal", $.proxy(this.handleModalShow, this));
+      this.modal.on("hidden.bs.modal", $.proxy(this.handleModalHidden, this));
+    },
+    createModalIfNotExists: function() {
+      var existingModal = document.getElementById('rejectModal');
+      if (!existingModal) {
+        var modalHtml = `
+          <div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="rejectModalLabel">Reject Submission</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="rejectForm" method="post" action="/data_reuse/reject_data_reuse">
+                  <div class="modal-body">
+                    <div class="mb-3">
+                      <label for="feedback" class="form-label">Feedback for the submitter</label>
+                      <textarea class="form-control" id="feedback" name="feedback" rows="6" 
+                                placeholder="Please provide constructive feedback explaining why this submission was rejected and what improvements could be made..."></textarea>
+                      <div class="form-text">This feedback will be sent to the submitter via email.</div>
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                      <i class="fa fa-exclamation-triangle"></i>
+                      <strong>Warning:</strong> This action cannot be undone. The submission will be marked as rejected and the submitter will be notified.
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning">
+                      <i class="fa fa-times"></i> Reject Submission
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        `;
+        $('body').append(modalHtml);
+      }
+    },
+    handleButtonClick: function(event) {
+      event.preventDefault();
+      
+      // Update form action with reject URL
+      if (this.form.length && this.rejectUrl) {
+        this.form.attr("action", this.rejectUrl);
+      }
+      
+      // Clear previous feedback
+      if (this.feedback.length) {
+        this.feedback.val("");
+      }
+      
+      // Show modal
+      this.modal.modal("show");
+    },
+    handleModalShow: function(event) {
+      // Modal is shown, form action already updated in handleButtonClick
+    },
+    handleModalHidden: function(event) {
+      // Clear feedback when modal is hidden
+      if (this.feedback.length) {
+        this.feedback.val("");
+      }
+    }
+  };
+});

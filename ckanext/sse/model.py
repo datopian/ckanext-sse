@@ -75,7 +75,7 @@ class PackageAccessRequest(Base):
     @classmethod
     def get(cls, request_id):
         """Get a PackageAccessRequest by ID"""
-        return Session.query(cls).get(request_id)
+        return Session.get(cls, request_id)
 
     @classmethod
     def get_all(cls):
@@ -109,9 +109,7 @@ class PackageAccessRequest(Base):
     @classmethod
     def get_by_orgs(cls, org_ids):
         """Get all PackageAccessRequests from a user"""
-        return (
-            Session.query(cls).filter_by(PackageAccessRequest.org_id.in_(org_ids)).all()
-        )
+        return Session.query(cls).filter(PackageAccessRequest.org_id.in_(org_ids)).all()
 
     @classmethod
     def delete(cls, request_id):
@@ -202,10 +200,13 @@ class FormResponse(DomainObject.DomainObject, tk.BaseModel):
     def get(cls, id, include_all=False):
         """Get a FormResponse by ID"""
         if include_all:
-            return Session.query(cls).get(id)
+            return Session.get(cls, id)
         else:
-            # By default, only return approved submissions
-            return Session.query(cls).filter_by(state="approved").get(id)
+            return (
+                Session.query(cls)
+                .filter_by(id=id, state="approved")
+                .one_or_none()
+            )
 
     @classmethod
     def get_all(cls, include_all=False):
@@ -213,7 +214,6 @@ class FormResponse(DomainObject.DomainObject, tk.BaseModel):
         if include_all:
             return Session.query(cls).order_by(cls.submitted_at.desc()).all()
         else:
-            # By default, only return approved submissions
             return (
                 Session.query(cls)
                 .filter_by(state="approved")
@@ -308,6 +308,17 @@ class FormResponse(DomainObject.DomainObject, tk.BaseModel):
             Session.commit()
             return True
         return False
+
+    @classmethod
+    def update(cls, submission_id, **kwargs):
+        """Update a FormResponse by ID"""
+        submission = cls.get(submission_id, include_all=True)
+        if submission:
+            for key, value in kwargs.items():
+                setattr(submission, key, value)
+            Session.commit()
+            return submission
+        return None
 
     @classmethod
     def update_data(cls, submission_id, new_data):

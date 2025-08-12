@@ -231,11 +231,17 @@ resource_fields:
     required: true
     choices:
       - value: regular
-        label: Regular
-      - value: documentation
-        label: Documentation
+        label: Data
       - value: historic
-        label: Historic
+        label: Data - Historical
+      - value: related_data
+        label: Data - Related
+      - value: documentation
+        label: Reports and Documents
+      - value: historical_reports_and_documents
+        label: Reports and Documents - Historical
+      - value: related_reports_and_documents
+        label: Reports and Documents - Related
   - field_name: is_geospatial
     label: Geospatial data
     help_text: Controls whether this data can be used on the map builder or whether it can be added as a layer on geospatial data previews

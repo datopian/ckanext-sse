@@ -9,7 +9,7 @@
   {% snippet "package/snippets/resources_list.html", pkg=pkg, resources=pkg.resources %}
 
   #}
-{% set resources_dict = {'regular': [], 'documentation': [], 'historic': []} %}
+{% set resources_dict = {'regular': [], 'documentation': [], 'historic': [], 'related_data': [], 'historical_reports_and_documents': [], 'related_reports_and_documents': []} %}
 
 {% for resource in resources %}
   {% set resource_type = resource.get('resource_type') %}
@@ -21,8 +21,11 @@
 {% endfor %}
 
 {% set regular_resources = resources_dict['regular'] %}
-{% set documentation_resources = resources_dict['documentation'] %}
 {% set historic_resources = resources_dict['historic'] %}
+{% set documentation_resources = resources_dict['documentation'] %}
+{% set historical_reports_and_documents_resources = resources_dict['historical_reports_and_documents'] %}
+{% set related_data_resources = resources_dict['related_data'] %}
+{% set related_reports_and_documents_resources = resources_dict['related_reports_and_documents'] %}
 
 
   <section id="dataset-resources" class="resources">
@@ -53,7 +56,7 @@
 
     {% if documentation_resources %}
     <br>
-      <h2>{{ _('Documentation  ') }}</h2>
+      <h2>{{ _('Reports and Documents  ') }}</h2>
       {% block documentation_resource_list %}
         {% if documentation_resources %}
           {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
@@ -68,16 +71,67 @@
       {% endblock %}
     {% endif %}
 
+    {% if related_data_resources %}
+    <br>
+      <h2>{{ _('Related Data  ') }}</h2>
+      {% block related_data_resource_list %}
+        {% if related_data_resources %}
+          {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
+          <ul class="{% block related_data_resource_list_class %}resource-list{% endblock %}">
+            {% block related_data_resource_list_inners %}
+              {% for resource in related_data_resources %}
+                {% snippet 'package/snippets/resource_item.html', pkg=pkg, res=resource, can_edit=can_edit %}
+              {% endfor %}
+            {% endblock %}
+          </ul>
+        {% endif %}
+      {% endblock %}
+    {% endif %}
+
+    {% if related_reports_and_documents_resources %}
+    <br>
+      <h2>{{ _('Related Reports and Documents  ') }}</h2>
+      {% block related_documents_and_reports_resource_list %}
+        {% if related_reports_and_documents_resources %}
+          {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
+          <ul class="{% block related_documents_and_reports_resource_list_class %}resource-list{% endblock %}">
+            {% block related_documents_and_reports_resource_list_inners %}
+              {% for resource in related_reports_and_documents_resources %}
+                {% snippet 'package/snippets/resource_item.html', pkg=pkg, res=resource, can_edit=can_edit %}
+              {% endfor %}
+            {% endblock %}
+          </ul>
+        {% endif %}
+      {% endblock %}
+    {% endif %}
+
 
     {% if historic_resources %}
     <br>
-      <h2>{{ _('Historic  Data') }}</h2>
+      <h2>{{ _('Historical  Data') }}</h2>
       {% block historic_resources_list %}
         {% if historic_resources %}
           {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
           <ul class="{% block historic_resources_list_class %}resource-list{% endblock %}">
             {% block historic_resources_list_inners %}
               {% for resource in historic_resources %}
+                {% snippet 'package/snippets/resource_item.html', pkg=pkg, res=resource, can_edit=can_edit %}
+              {% endfor %}
+            {% endblock %}
+          </ul>
+        {% endif %}
+      {% endblock %}
+    {% endif %}
+
+    {% if historical_reports_and_documents_resources %}
+    <br>
+      <h2>{{ _('Historical Reports and Documents') }}</h2>
+      {% block historical_reports_and_documents_resources_list %}
+        {% if historical_reports_and_documents_resources %}
+          {% set can_edit = can_edit or h.check_access('package_update', {'id':pkg.id }) %}
+          <ul class="{% block historical_reports_and_documents_resources_list_class %}resource-list{% endblock %}">
+            {% block historical_reports_and_documents_list_inners %}
+              {% for resource in historical_reports_and_documents_resources %}
                 {% snippet 'package/snippets/resource_item.html', pkg=pkg, res=resource, can_edit=can_edit %}
               {% endfor %}
             {% endblock %}

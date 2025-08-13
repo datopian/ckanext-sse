@@ -20,11 +20,10 @@ def get_data_reuse_field_labels():
         'dataset': toolkit._('Data Asset used?'),
         'label': toolkit._('Label '),
         'description': toolkit._('Description'),
-        'showcase_permission': toolkit._('Permission to showcase'),
-        'showcase_permission_other': toolkit._('Other Permission Details'),
         'additional_information': toolkit._('Additional Information'),
         'contact_permission': toolkit._('Permission to contact'),
         'submitted_at': toolkit._('Submitted'),
+        'dashboard_url': toolkit._('Dashboard URL'),
     }
 
 def is_org_admin_by_package_id(pkg_name):

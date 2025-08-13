@@ -1,4 +1,4 @@
-{% if pkg and pkg.state == 'active' %}
+{% if pkg and pkg.state == 'active' and h.check_access('package_show', {'id': pkg.id}) %}
   <div class="data-reuse-section p-3">
     <h3>{{ _('Share Your Experience') }}</h3>
     <p>{{ _('Have you used this dataset? Share your experience to help others understand its value and potential applications.') }}</p>
@@ -13,8 +13,6 @@
          class="btn btn-primary mb-2">  
         <i class="fa fa-edit"></i> {{ _('Share Data Usage Example') }}
       </a>
-      
-
       
       {% if h.check_access('data_reuse_list') %}
         <a href="{{ h.url_for('data_reuse.list_data_reuse', package_id=pkg.id) }}" 

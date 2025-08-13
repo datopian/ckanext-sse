@@ -16,7 +16,6 @@ ssen_blueprint = Blueprint('ssen', __name__)
 
 log = getLogger(__name__)
 
-
 @ssen_blueprint.route('/dataset/<id>/resource/<resource_id>/download/<filename>')
 def custom_download(id, resource_id, filename):
     pkg = toolkit.get_action('package_show')({}, {'id': id})

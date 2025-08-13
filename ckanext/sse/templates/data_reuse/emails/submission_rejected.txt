@@ -34,8 +34,6 @@ Additional Information:
 {{ data.data.additional_information }}
 {% endif %}
 {% if data.data.image_url %}Image URL: {{ data.data.image_url }}{% endif %}
-Showcase Permission: {{ data.data.showcase_permission or "" }}
-{% if data.data.showcase_permission_other %}Showcase Permission Other: {{ data.data.showcase_permission_other }}{% endif %}
 Contact Permission: {% if data.data.contact_permission %}Yes{% else %}No{% endif %}
 ===============================================================================
 

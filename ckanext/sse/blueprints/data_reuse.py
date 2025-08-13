@@ -116,12 +116,6 @@ def submit_data_reuse(
         {"value": "Other", "text": tk._("Other")},
     ]
 
-    showcase_permission_choices = [
-        {"value": "", "text": tk._("Select permission")},
-        {"value": "Yes", "text": tk._("Yes")},
-        {"value": "No", "text": tk._("No")},
-        {"value": "Others", "text": tk._("Others")},
-    ]
     contact_permission_choices = [
         {"value": "", "text": tk._("Select permission")},
         {"value": "Yes", "text": tk._("Yes")},
@@ -135,7 +129,6 @@ def submit_data_reuse(
         "errors": errors,
         "label_choices": label_choices,
         "organisation_type_choices": organisation_type_choices,
-        "showcase_permission_choices": showcase_permission_choices,
         "contact_permission_choices": contact_permission_choices,
     }
 

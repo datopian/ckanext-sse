@@ -136,26 +136,14 @@
           <!-- Image URL -->
           {{ form.image_upload(data, errors, is_upload_enabled=h.uploads_enabled(), is_url=is_url, is_upload=is_upload,
           upload_label=_('Image '), url_label=_('Image URL') )}}
+
+          {{ form.input('dashboard_url', id='dashboard_url', 
+          label=field_labels.dashboard_url,
+          placeholder=_('Link to a dashboard or report showcasing your usage'),
+          value=data.dashboard_url, error=errors.dashboard_url,
+          attrs={'class': 'form-control'},
+          classes=['control-full']) }}
           {% endif %}
-
-          <!-- Showcase Permission -->
-          {{ form.select('showcase_permission', id='showcase_permission',
-          label=field_labels.showcase_permission, is_required=True,
-          options=showcase_permission_choices, selected=data.showcase_permission, error=errors.showcase_permission,
-          classes=['control-full'], attrs={'required': 'required', 'class': 'form-control'}) }}
-
-          <div class="control-group{% if errors.showcase_permission_other %} error{% endif %}" id="showcase_other_field"
-            style="display: none;">
-            {{ form.textarea('showcase_permission_other', id='showcase_permission_other',
-            label=field_labels.showcase_permission_other, placeholder=_('Please specify your permission requirements'),
-            value=data.showcase_permission_other, is_required=True,
-            error=errors.showcase_permission_other, attrs={'class': 'form-control', 'rows': '3', 'style': 'white-space:
-            pre-wrap;'},
-            classes=['control-full']) }}
-            <div class="invalid-feedback">
-              {{ _('Please specify your permission requirements.') }}
-            </div>
-          </div>
 
           <!-- Additional Information -->
           {{ form.textarea('additional_information', id='additional_information',
@@ -165,6 +153,7 @@
           pre-wrap;'}, classes=['control-full'])
           }}
 
+ 
           <!-- Contact Permission -->
           {{ form.select('contact_permission', id='contact_permission', label=field_labels.contact_permission,
           options=contact_permission_choices, selected=data.contact_permission, error=errors.contact_permission,

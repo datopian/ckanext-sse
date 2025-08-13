@@ -41,7 +41,6 @@ def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, 
         'Regulator', 'Technology', 'Other'
     ]
     reuse_type_choices = ['Example', 'Idea']  # Renamed from usage_type
-    showcase_permission_choices = ['Yes', 'No', 'Others']
     
     schema = {
         "full_name": [ignore_missing, unicode_safe],
@@ -54,13 +53,12 @@ def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, 
         "package_id": [not_empty, unicode_safe, package_id_exists],
         "reuse_type": [not_empty, choice_validator(reuse_type_choices)],
         "description": [ignore_missing, unicode_safe], 
-        "showcase_permission": [not_empty, choice_validator(showcase_permission_choices)],
-        "showcase_permission_other": [ignore_missing, unicode_safe],
         "additional_information": [ignore_missing, unicode_safe],
         "contact_permission": [ignore_missing, boolean_validator],
         'image_url': [ignore_missing, unicode_safe],
         'image_upload': [ignore_missing],
         'image_display_url': [ignore_missing, unicode_safe],
+        'dashboard_url': [ignore_missing, unicode_safe],
         "user_id": [ignore_missing, unicode_safe],
         "state": [ignore_missing, choice_validator(['pending', 'approved', 'rejected'])],
         "id": [ignore_missing, unicode_safe], 

@@ -127,6 +127,16 @@
             </div>
             {% endif %}
 
+            {% if submission.data.dashboard_url %}
+            <div class="mb-4">
+              <h6 class="text-primary mb-2">{{ field_labels.dashboard_url }}</h6>
+              <div class="p-3 bg-light rounded border">
+                <a href="{{ submission.data.dashboard_url }}" target="_blank" class="text-decoration-none">
+                  {{ submission.data.dashboard_url }}
+                </a>
+              </div>
+            </div>
+            {% endif %}
 
             <!-- Additional Information -->
             {% if submission.data.additional_information %}
@@ -138,28 +148,8 @@
             </div>
             {% endif %}
 
-            <!-- Showcase Permission -->
-            <div class="row">
-              <div class="col-md-6 mb-3">
-                <h6 class="text-primary mb-2">{{ field_labels.showcase_permission }}</h6>
-                <p class="mb-0">
-                  {{ submission.data.showcase_permission or _('Not specified') }}
-                  {% if submission.data.showcase_permission == 'Others' and submission.data.showcase_permission_other %}
-                  <br><small class="text-muted mt-2 d-block">{{ submission.data.showcase_permission_other }}</small>
-                  {% endif %}
-                </p>
-              </div>
-              <div class="col-md-6 mb-3">
-                <h6 class="text-primary mb-2">{{ field_labels.contact_permission }}</h6>
-                <p class="mb-0">
-                  {% if submission.data.contact_permission %}
-                  <span class="badge bg-success">{{ _('Yes') }}</span>
-                  {% else %}
-                  <span class="badge bg-secondary">{{ _('No') }}</span>
-                  {% endif %}
-                </p>
-              </div>
-            </div>
+           
+         
           </div>
         </div>
 

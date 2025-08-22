@@ -171,6 +171,11 @@ class SsePlugin(plugins.SingletonPlugin):
         return entity
 
     # IPackageController
+    def before_dataset_search(self, data_dict):
+        data_dict["qf"] = "text_ngram"
+        return data_dict
+
+
     def before_dataset_index(self, data_dict):
         if data_dict.get("coverage", False):
             data_dict["coverage"] = json.dumps(data_dict["coverage"])

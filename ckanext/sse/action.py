@@ -856,3 +856,26 @@ def data_reuse_delete(context, data_dict):
     except Exception as e:
         log.error(f"Error deleting data reuse submission: {str(e)}")
         raise tk.ValidationError(f"Failed to delete data reuse submission: {str(e)}")
+
+
+@tk.side_effect_free
+def resources_stats(context, data_dict):
+    session = model.Session()
+
+    # Query: count resources grouped by resource_type for public, active packages
+    q = (
+        session.query(
+            model.Resource.resource_type,
+            func.count(model.Resource.id)
+        )
+        .join(model.Package, model.Resource.package_id == model.Package.id)
+        .filter(model.Package.private == False, model.Package.state == "active")
+        .group_by(model.Resource.resource_type)
+    )
+
+    counts = {}
+    for res_type, cnt in q:
+        key = res_type.strip() if res_type and res_type.strip() else "none"
+        counts[key] = int(cnt)
+
+    return counts

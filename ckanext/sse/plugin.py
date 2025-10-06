@@ -239,7 +239,8 @@ class SsePlugin(plugins.SingletonPlugin):
             "data_reuse_show": action.data_reuse_show,
             "data_reuse_update": action.data_reuse_update,
             "data_reuse_patch": action.data_reuse_patch,
-            "data_reuse_delete": action.data_reuse_delete
+            "data_reuse_delete": action.data_reuse_delete,
+            "resources_stats": action.resources_stats
         }
 
     # IAuthFunctions

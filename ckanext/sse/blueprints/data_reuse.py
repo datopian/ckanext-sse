@@ -122,6 +122,12 @@ def submit_data_reuse(
         {"value": "No", "text": tk._("No")},
     ]
 
+    present_in_user_engagement_meeting_choices = [
+        {"value": "", "text": tk._("Select option")},
+        {"value": "Yes", "text": tk._("Yes")},
+        {"value": "No", "text": tk._("No")},
+    ]
+
     extra_vars = {
         "reuse_type": reuse_type,
         "package": package,
@@ -130,6 +136,8 @@ def submit_data_reuse(
         "label_choices": label_choices,
         "organisation_type_choices": organisation_type_choices,
         "contact_permission_choices": contact_permission_choices,
+        "visible_org_permission_choices": contact_permission_choices,
+        "present_in_user_engagement_meeting_choices": present_in_user_engagement_meeting_choices,
     }
 
     return tk.render("data_reuse/submit_form.html", extra_vars=extra_vars)

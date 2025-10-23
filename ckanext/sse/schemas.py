@@ -33,8 +33,18 @@ def choice_validator(choices):
 @schema.validator_args 
 def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, boolean_validator, package_id_exists):
     """Schema for data reuse submissions - covers both usage examples and ideas"""
-    
-    label_choices = ['Community Support', 'Research Innovation', 'Sustainability']
+    label_choices = [
+        'Community Support',
+        'Innovation',
+        'Research',
+        'Sustainability',
+        'Investment',
+        'Renewable Energy Projects',
+        'Planning and Development',
+        'Energy Costs',
+        'Network Development',
+        'Policy or Legislation Development'
+    ]
     organisation_type_choices = [
         'Academic', 'Construction', 'Data Science', 'Energy Consultant',
         'Energy Utility', 'Government', 'Innovator', 'Local Authority', 

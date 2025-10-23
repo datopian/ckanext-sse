@@ -33,8 +33,18 @@ def choice_validator(choices):
 @schema.validator_args 
 def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, boolean_validator, package_id_exists):
     """Schema for data reuse submissions - covers both usage examples and ideas"""
-    
-    label_choices = ['Community Support', 'Research Innovation', 'Sustainability']
+    label_choices = [
+        'Community Support',
+        'Innovation',
+        'Research',
+        'Sustainability',
+        'Investment',
+        'Renewable Energy Projects',
+        'Planning and Development',
+        'Energy Costs',
+        'Network Development',
+        'Policy or Legislation Development'
+    ]
     organisation_type_choices = [
         'Academic', 'Construction', 'Data Science', 'Energy Consultant',
         'Energy Utility', 'Government', 'Innovator', 'Local Authority', 
@@ -47,7 +57,6 @@ def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, 
         "email_address": [not_empty, email_validator],
         "organisation_name": [ignore_missing, unicode_safe],
         "organisation_type": [not_empty, choice_validator(organisation_type_choices)],
-        "job_title": [ignore_missing, unicode_safe],
         "title": [not_empty, unicode_safe],
         "label": [not_empty, choice_validator(label_choices)],
         "package_id": [not_empty, unicode_safe, package_id_exists],
@@ -55,6 +64,8 @@ def data_reuse_schema(not_empty, ignore_missing, unicode_safe, email_validator, 
         "description": [ignore_missing, unicode_safe], 
         "additional_information": [ignore_missing, unicode_safe],
         "contact_permission": [ignore_missing, boolean_validator],
+        "visible_org_permission": [ignore_missing, boolean_validator],
+        "present_in_user_engagement_meeting": [ignore_missing, boolean_validator],
         'image_url': [ignore_missing, unicode_safe],
         'image_upload': [ignore_missing],
         'image_display_url': [ignore_missing, unicode_safe],

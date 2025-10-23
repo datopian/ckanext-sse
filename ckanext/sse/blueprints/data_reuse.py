@@ -98,9 +98,17 @@ def submit_data_reuse(
     label_choices = [
         {"value": "", "text": tk._("Select a label")},
         {"value": "Community Support", "text": tk._("Community Support")},
-        {"value": "Research Innovation", "text": tk._("Research Innovation")},
+        {"value": "Innovation", "text": tk._("Innovation")},
+        {"value": "Research", "text": tk._("Research")},
         {"value": "Sustainability", "text": tk._("Sustainability")},
+        {"value": "Investment", "text": tk._("Investment")},
+        {"value": "Renewable Energy Projects", "text": tk._("Renewable Energy Projects")},
+        {"value": "Planning and Development", "text": tk._("Planning and Development")},
+        {"value": "Energy Costs", "text": tk._("Energy Costs")},
+        {"value": "Network Development", "text": tk._("Network Development")},
+        {"value": "Policy or Legislation Development", "text": tk._("Policy or Legislation Development")},
     ]
+
     organisation_type_choices = [
         {"value": "", "text": tk._("Select organisation type")},
         {"value": "Academic", "text": tk._("Academic")},
@@ -122,6 +130,12 @@ def submit_data_reuse(
         {"value": "No", "text": tk._("No")},
     ]
 
+    present_in_user_engagement_meeting_choices = [
+        {"value": "", "text": tk._("Select option")},
+        {"value": "Yes", "text": tk._("Yes")},
+        {"value": "No", "text": tk._("No")},
+    ]
+
     extra_vars = {
         "reuse_type": reuse_type,
         "package": package,
@@ -130,6 +144,8 @@ def submit_data_reuse(
         "label_choices": label_choices,
         "organisation_type_choices": organisation_type_choices,
         "contact_permission_choices": contact_permission_choices,
+        "visible_org_permission_choices": contact_permission_choices,
+        "present_in_user_engagement_meeting_choices": present_in_user_engagement_meeting_choices,
     }
 
     return tk.render("data_reuse/submit_form.html", extra_vars=extra_vars)

@@ -18,7 +18,6 @@ Below is a copy of what you submitted. You can copy and paste this information a
 
 Full Name: {{ data.data.full_name or "" }}
 Email Address: {{ data.data.email_address or "" }}
-Job Title: {{ data.data.job_title or "" }}
 Dataset Title: {{ dataset_title or "" }}
 Organisation Name: {{ data.data.organisation_name or "" }}
 Organisation Type: {{ data.data.organisation_type or "" }}
@@ -35,6 +34,8 @@ Additional Information:
 {% endif %}
 {% if data.data.image_url %}Image URL: {{ data.data.image_url }}{% endif %}
 Contact Permission: {% if data.data.contact_permission %}Yes{% else %}No{% endif %}
+Visible Organisation Permission: {% if data.data.visible_org_permission %}Yes{% else %}No{% endif %}
+Would like to present at a future SSEN user engagement event: {% if data.data.present_in_user_engagement_meeting %}Yes{% else %}No{% endif %}
 ===============================================================================
 
 Thank you for your understanding.

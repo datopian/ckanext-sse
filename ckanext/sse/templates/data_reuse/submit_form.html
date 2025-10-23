@@ -67,12 +67,6 @@
             {{ _('Please provide a valid email address.') }}
           </div>
 
-          <!-- Job Title -->
-          {{ form.input('job_title', id='job_title', label=field_labels.job_title,
-          placeholder=_('Enter your job title'),
-          value=data.job_title, error=errors.job_title, classes=['control-full'], attrs={'class': 'form-control',
-          'required': 'required', } ) }}
-
           <!-- Organisation Name -->
           {{ form.input('organisation_name', id='organisation_name',
           label=field_labels.organisation_name,
@@ -88,6 +82,12 @@
           <div class="invalid-feedback">
             {{ _('Please select an organisation type.') }}
           </div>
+
+          <!-- Visible Org Permission -->
+          {{ form.select('visible_org_permission', id='visible_org_permission', label=field_labels.visible_org_permission,
+          options=visible_org_permission_choices, selected=data.visible_org_permission, error=errors.visible_org_permission,
+          classes=['control-full'],
+          attrs={'class': 'form-control'}) }}
         </div>
       </div>
 
@@ -157,6 +157,12 @@
           <!-- Contact Permission -->
           {{ form.select('contact_permission', id='contact_permission', label=field_labels.contact_permission,
           options=contact_permission_choices, selected=data.contact_permission, error=errors.contact_permission,
+          classes=['control-full'],
+          attrs={'class': 'form-control'}) }}
+
+          <!--Present in SSEN user engagement meeting -->
+          {{ form.select('present_in_user_engagement_meeting', id='present_in_user_engagement_meeting', label=field_labels.present_in_user_engagement_meeting,
+          options=present_in_user_engagement_meeting_choices, selected=data.present_in_user_engagement_meeting, error=errors.present_in_user_engagement_meeting,
           classes=['control-full'],
           attrs={'class': 'form-control'}) }}
         </div>

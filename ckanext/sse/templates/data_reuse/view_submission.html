@@ -54,19 +54,17 @@
             </div>
             <div class="row">
               <div class="col-md-6 mb-3">
-                <h6 class="text-primary mb-2">{{ field_labels.job_title }}</h6>
-                <p class="mb-0">{{ submission.data.job_title or _('Not specified') }}</p>
-              </div>
-              <div class="col-md-6 mb-3">
                 <h6 class="text-primary mb-2">{{ field_labels.organisation_name }}</h6>
                 <p class="mb-0">{{ submission.data.organisation_name or _('Not specified') }}</p>
               </div>
-            </div>
-            <div class="row">
               <div class="col-md-6 mb-3">
                 <h6 class="text-primary mb-2">{{ field_labels.organisation_type }}</h6>
                 <p class="mb-0">{{ submission.data.organisation_type or _('Not specified') }}</p>
               </div>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="text-primary mb-2">{{ field_labels.visible_org_permission }}</h6>
+              <p class="mb-0">{{ _("Yes") if submission.data.visible_org_permission else _('No') }}</p>
             </div>
           </div>
         </div>
@@ -148,7 +146,17 @@
             </div>
             {% endif %}
 
-           
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                   <h6 class="text-primary mb-2">{{ field_labels.contact_permission }}</h6>
+                   <p class="mb-0">{{ _("Yes") if submission.data.contact_permission else _('No') }}</p>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <h6 class="text-primary mb-2">{{ field_labels.present_in_user_engagement_meeting }}</h6>
+                  <p class="mb-0">{{ _("Yes") if submission.data.present_in_user_engagement_meeting else _('No') }}</p>
+                </div>
+            </div>
          
           </div>
         </div>

@@ -12,7 +12,6 @@ def get_data_reuse_field_labels():
     return {
         'full_name': toolkit._('Full Name'),
         'email_address': toolkit._('Email Address'),
-        'job_title': toolkit._('Job Title'),
         'organisation_name': toolkit._('Organisation Name '),
         'organisation_type': toolkit._('Organisation Type'),
         'title': toolkit._('Title '),
@@ -22,6 +21,8 @@ def get_data_reuse_field_labels():
         'description': toolkit._('Description'),
         'additional_information': toolkit._('Additional Information'),
         'contact_permission': toolkit._('Permission to contact'),
+        'visible_org_permission': toolkit._('Permission to publicly show the user\'s organisation name'),
+        'present_in_user_engagement_meeting': toolkit._('Would like to present at a future SSEN user engagement event'),
         'submitted_at': toolkit._('Submitted'),
         'dashboard_url': toolkit._('Dashboard URL'),
     }

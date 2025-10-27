@@ -406,12 +406,12 @@ def reuse_email_notification(reuse_data, _type, feedback=None):
         notification_email = []
 
         if _type == "new":
-            for sysadmin in sysadmins():
-                if sysadmin.name != "default":
-                    notification_email.append({
-                        'email': sysadmin.email,
-                        'name': sysadmin.fullname or sysadmin.name,
-                    })
+            notification_email.append(
+                {'email': 'Ethan.Sian@sse.com', 'name': "Ethan Sian"})
+            notification_email.append(
+                {'email': 'Jeff.Alexander@sse.com', 'name': "Jeff Alexander"})
+            notification_email.append(
+                {'email': 'data@sse.com', 'name': "SSEN Data"})
         else:
             notification_email.append({
                 'email': reuse_data["data"].get("email_address"),

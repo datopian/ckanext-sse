@@ -59,3 +59,16 @@ textarea.form-control {
   min-height: 120px;
   line-height: 1.5;
 }
+
+/* Reuse Image Thumbnails */
+.reuse-thumbnail {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid #e0e0e0;
+}
+
+.reuse-thumbnail:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  border-color: #3498db;
+}

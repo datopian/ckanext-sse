@@ -114,13 +114,15 @@
             <div class="mb-4">
               <h6 class="text-primary mb-2">{{ _('Image') }}</h6>
               <div class="p-3 bg-light rounded border">
-                {% if submission.data.image_url.startswith('http') %}
-                <img src="{{ submission.data.image_url }}" alt="{{ _('Submission Image') }}" class="img-fluid rounded"
-                  style="max-width: 100%; height: auto;">
-                {% else %}
-                <img src="{{ h.url_for_static_or_external(submission.data.image_url) }}"
-                  alt="{{ _('Submission Image') }}" class="img-fluid rounded" style="max-width: 100%; height: auto;">
-                {% endif %}
+                <div style="display: flex; justify-content: center; align-items: center;">
+                  {% if submission.data.image_url.startswith('http') %}
+                  <img src="{{ submission.data.image_url }}" alt="{{ _('Submission Image') }}" class="img-fluid rounded"
+                    style="max-width: 100%; height: auto; max-height: 500px; object-fit: contain;">
+                  {% else %}
+                  <img src="{{ h.url_for_static_or_external(submission.data.image_url) }}"
+                    alt="{{ _('Submission Image') }}" class="img-fluid rounded" style="max-width: 100%; height: auto; max-height: 500px; object-fit: contain;">
+                  {% endif %}
+                </div>
               </div>
             </div>
             {% endif %}

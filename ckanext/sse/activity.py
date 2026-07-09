@@ -20,27 +20,20 @@ log = logging.getLogger(__name__)
 def dashboard_activity_list_for_all_users(
     context, data_dict
 ) -> list[dict[str]]:
-    """Return all the users's dashboard activity
-       stream.
+    """Return yesterday's activities grouped by the user that performed them.
 
-    Unlike the activity dictionaries returned by other ``*_activity_list``
-    actions, these activity dictionaries have an extra boolean value with key
-    ``is_new`` that tells you whether the activity happened since the user last
-    viewed her dashboard (``'is_new': True``) or not (``'is_new': False``).
+    Queries the activity table once for all of yesterday's activities
+    instead of iterating over every user, so the response stays fast
+    regardless of how many users exist.
 
-    The user's own activities are always marked ``'is_new': False``.
+    Each returned item has the shape::
 
-    :param offset: where to start getting activity items from
-        (optional, default: ``0``)
-    :type offset: int
-    :param limit: the maximum number of activities to return
-        (optional, default: ``31`` unless set in site's configuration
-        ``ckan.activity_list_limit``, upper limit: ``100`` unless set in
-        site's configuration ``ckan.activity_list_limit_max``)
-    :type limit: int
+        {"username": <fullname or name>, "activities": [<activity dict>, ...]}
 
-    :rtype: list of activity dictionaries
+    Activity dictionaries include ``'is_new': False`` for compatibility with
+    the ``dashboard_activity_list`` output format.
 
+    :rtype: list of dictionaries
     """
     if not is_sysadmin(context['user']):
         return {
@@ -48,54 +41,49 @@ def dashboard_activity_list_for_all_users(
             'error_summary': {_('auth'): _('User not authorized')},
         }
 
-    user_activities = list()
     today = datetime.date.today()
     yesterday = today - timedelta(days=1)
-    user_list = tk.get_action('user_list')({"ignore_auth": True})
-    for user in user_list:
-        user_id = user.get('id')
-        offset = data_dict.get("offset", 0)
-        # defaulted, limited & made an int by schema
-        limit = data_dict["limit"]
-        before = data_dict.get("before")
-        after = data_dict.get("after")
-        # FIXME: Filter out activities whose subject or object the user is not
-        # authorized to read.
-        activity_objects = core_model_activity.dashboard_activity_list(
-            user_id,
-            limit=limit,
-            offset=offset,
-            before=before,
-            after=after
-        )
+    yesterday_start = datetime.datetime.combine(yesterday, datetime.time.min)
+    today_start = datetime.datetime.combine(today, datetime.time.min)
 
-        activity_dicts = core_model_activity.activity_list_dictize(
-            activity_objects, context
-        )
+    activity_objects = (
+        model.Session.query(core_model_activity.Activity)
+        .filter(core_model_activity.Activity.timestamp >= yesterday_start)
+        .filter(core_model_activity.Activity.timestamp < today_start)
+        .filter(core_model_activity.Activity.user_id.isnot(None))
+        .order_by(core_model_activity.Activity.timestamp.asc())
+        .all()
+    )
 
-        # Mark the new (not yet seen by user) activities.
-        strptime = datetime.datetime.strptime
-        fmt = "%Y-%m-%dT%H:%M:%S.%f"
-        dashboard = model.Dashboard.get(user_id)
-        last_viewed = None
-        if dashboard:
-            last_viewed = dashboard.activity_stream_last_viewed
-        for activity in activity_dicts:
-            if activity["user_id"] == user_id:
-                # Never mark the user's own activities as new.
-                activity["is_new"] = False
-            elif last_viewed:
-                activity["is_new"] = (
-                    strptime(activity["timestamp"], fmt) > last_viewed
-                )
-        filtered_activities = [
-            element for element in activity_dicts
-            if datetime.datetime.strptime(element["timestamp"], "%Y-%m-%dT%H:%M:%S.%f").date() == yesterday \
-                and element['user_id'] == user.get('id')
-        ]
+    if not activity_objects:
+        return []
 
-        if len(filtered_activities) > 0:
-            user_activities.append({'username': user.get('fullname') or user.get(
-                'name') or user.get('id'), 'activities': filtered_activities})
+    activity_dicts = core_model_activity.activity_list_dictize(
+        activity_objects, context
+    )
 
-    return user_activities
+    user_ids = {a["user_id"] for a in activity_dicts if a.get("user_id")}
+    users_by_id = {
+        user.id: user
+        for user in model.Session.query(model.User)
+        .filter(model.User.id.in_(user_ids))
+        .all()
+    }
+
+    activities_by_user = {}
+    for activity in activity_dicts:
+        user_id = activity.get("user_id")
+        if user_id not in users_by_id:
+            continue
+        activity["is_new"] = False
+        activities_by_user.setdefault(user_id, []).append(activity)
+
+    return [
+        {
+            'username': users_by_id[user_id].fullname
+            or users_by_id[user_id].name
+            or user_id,
+            'activities': activities,
+        }
+        for user_id, activities in activities_by_user.items()
+    ]

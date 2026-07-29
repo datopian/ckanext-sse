@@ -23,8 +23,10 @@ has been established. Failures come from CKAN's own ``failed_login`` signal
 """
 
 import datetime
+import ipaddress
 import json
 import logging
+import re
 import sys
 
 from flask import has_request_context
@@ -37,11 +39,21 @@ log = logging.getLogger(__name__)
 
 EVENT_TYPE = "security_audit"
 
-# Number of trusted proxies that append to X-Forwarded-For. A single GCP
-# external HTTP(S) load balancer appends one entry, so the client address is
-# the second from the right; anything further left is client-supplied and
-# therefore spoofable.
-DEFAULT_TRUSTED_PROXIES = 1
+# Number of trusted proxies sitting *in front of* the one that terminates the
+# connection to CKAN.
+#
+# ingress-nginx writes the peer address it observed into X-Forwarded-For: it
+# replaces the header by default, and with ``compute-full-forwarded-for`` it
+# appends that address after any client-supplied chain. Either way the
+# *rightmost* entry is the only one written by something we trust, so hop 0 --
+# the rightmost -- is the client. Everything further left is client-supplied
+# and therefore spoofable.
+#
+# Raise this only when additional trusted proxies sit in front of the ingress
+# (a CDN, for instance); each one shifts the real client one place further
+# left. Measured against ckan-dev.sse.datopian.com: the chain arrives with a
+# single entry, so 0 is correct there.
+DEFAULT_TRUSTED_PROXIES = 0
 
 
 def get_subscriptions():
@@ -93,48 +105,106 @@ def _request_context():
     }
 
 
+def _trusted_proxy_count():
+    """``trusted_proxies``, normalised so a bad value cannot break a login."""
+    raw = toolkit.config.get(
+        "ckanext.sse.audit.trusted_proxies", DEFAULT_TRUSTED_PROXIES
+    )
+    try:
+        count = toolkit.asint(raw)
+    except (ValueError, TypeError):
+        log.warning(
+            "Ignoring invalid ckanext.sse.audit.trusted_proxies %r, using %s",
+            raw,
+            DEFAULT_TRUSTED_PROXIES,
+        )
+        return DEFAULT_TRUSTED_PROXIES
+    # A negative count would index past the end of the chain.
+    return max(0, count)
+
+
+def _peer_is_trusted(remote_addr):
+    """Whether the host that opened this connection may dictate the chain.
+
+    Without this check any client could set ``source_ip`` to whatever it liked
+    simply by sending an ``X-Forwarded-For`` header.
+    """
+    if not remote_addr:
+        return False
+
+    try:
+        peer = ipaddress.ip_address(remote_addr)
+    except ValueError:
+        return False
+
+    # CKAN sees the ingress as an IPv4-mapped IPv6 address (::ffff:10.60.1.7).
+    peer = getattr(peer, "ipv4_mapped", None) or peer
+
+    configured = toolkit.config.get("ckanext.sse.audit.trusted_proxy_cidrs", "")
+    if not configured:
+        # No allowlist set: trust only private/loopback peers, which is what an
+        # in-cluster ingress looks like. This stops spoofing from the internet
+        # but not from inside the cluster -- narrow the setting to the ingress
+        # pod range in deployment to close that too.
+        return peer.is_private or peer.is_loopback
+
+    for entry in re.split(r"[,\s]+", configured.strip()):
+        if not entry:
+            continue
+        try:
+            if peer in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            log.warning(
+                "Ignoring invalid ckanext.sse.audit.trusted_proxy_cidrs entry %r",
+                entry,
+            )
+    return False
+
+
 def _client_ip(forwarded_for, remote_addr):
     """Pick the client address out of the X-Forwarded-For chain.
 
-    The raw chain is logged alongside this, so a wrong
+    Falls back to the connecting peer whenever the chain cannot be trusted. The
+    raw chain is logged alongside the result, so a wrong
     ``ckanext.sse.audit.trusted_proxies`` setting loses no information.
     """
-    if not forwarded_for:
+    if not forwarded_for or not _peer_is_trusted(remote_addr):
         return remote_addr
 
     chain = [part.strip() for part in forwarded_for.split(",") if part.strip()]
     if not chain:
         return remote_addr
 
-    trusted = toolkit.asint(
-        toolkit.config.get(
-            "ckanext.sse.audit.trusted_proxies", DEFAULT_TRUSTED_PROXIES
-        )
-    )
-    index = len(chain) - 1 - trusted
-    if index < 0:
-        # Fewer hops than configured -- the leftmost entry is the best guess.
-        return chain[0]
+    # Count in from the right: the rightmost entry is the one our trusted proxy
+    # wrote. Clamps to the leftmost entry if the chain is shorter than the
+    # configured hop count.
+    index = max(0, len(chain) - 1 - _trusted_proxy_count())
     return chain[index]
 
 
 def emit_audit_log(action, status, message, user_name=None, user_id=None):
-    payload = {
-        "event_type": EVENT_TYPE,
-        # Event time, not ingestion time -- the collector's own clock can lag
-        # behind under load, and there is no log formatter supplying one here.
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "action": action,
-        "status": status,
-        "user_name": user_name or "anonymous",
-        "user_id": user_id,
-        "message": message,
-    }
-    payload.update(_request_context())
-
-    # A broken audit line must never break the request it describes. Failures
-    # go to the logger (stderr), where an ERROR severity is accurate.
+    # A broken audit line must never break the request it describes. These
+    # functions run inside signal receivers on the login and logout paths, so
+    # gathering the context has to be inside the boundary too, not just the
+    # write. Failures go to the logger (stderr), where an ERROR severity is
+    # accurate.
     try:
+        payload = {
+            "event_type": EVENT_TYPE,
+            # Event time, not ingestion time -- the collector's own clock can
+            # lag behind under load, and there is no log formatter supplying
+            # one here.
+            "timestamp": datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat(),
+            "action": action,
+            "status": status,
+            "user_name": user_name or "anonymous",
+            "user_id": user_id,
+            "message": message,
+        }
+        payload.update(_request_context())
         print(json.dumps(payload), file=sys.stdout, flush=True)
     except Exception:
         log.exception("Failed to emit security audit log for %s", action)

@@ -1,8 +1,14 @@
 """Structured security audit logging for authentication events.
 
-Emits one JSON object per event through the stdlib logger
-``ckanext.sse.audit``, so events land on stdout for the centralised log
-collector to pick up.
+Emits one JSON object per event, one line each, straight to stdout for the
+centralised log collector to pick up.
+
+Deliberately not routed through the stdlib logger: CKAN's ``[handler_console]``
+writes to ``sys.stderr``, and GKE's logging agent tags stderr output as
+``severity: ERROR``, which would file every successful login as an error.
+Writing to stdout ourselves also means a change to CKAN's log levels cannot
+silence the audit trail. The logger is still used for failures to *emit* an
+event, where stderr and an ERROR severity are the right destination.
 
 The hooks used here were chosen against the semantics CKAN actually
 implements (2.10):
@@ -16,8 +22,10 @@ has been established. Failures come from CKAN's own ``failed_login`` signal
 (``ckan/lib/authenticator.py``).
 """
 
+import datetime
 import json
 import logging
+import sys
 
 from flask import has_request_context
 from flask_login import user_logged_in
@@ -113,6 +121,9 @@ def _client_ip(forwarded_for, remote_addr):
 def emit_audit_log(action, status, message, user_name=None, user_id=None):
     payload = {
         "event_type": EVENT_TYPE,
+        # Event time, not ingestion time -- the collector's own clock can lag
+        # behind under load, and there is no log formatter supplying one here.
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "action": action,
         "status": status,
         "user_name": user_name or "anonymous",
@@ -121,9 +132,10 @@ def emit_audit_log(action, status, message, user_name=None, user_id=None):
     }
     payload.update(_request_context())
 
-    # A broken audit line must never break the request it describes.
+    # A broken audit line must never break the request it describes. Failures
+    # go to the logger (stderr), where an ERROR severity is accurate.
     try:
-        log.info(json.dumps(payload))
+        print(json.dumps(payload), file=sys.stdout, flush=True)
     except Exception:
         log.exception("Failed to emit security audit log for %s", action)
 

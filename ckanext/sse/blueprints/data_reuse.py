@@ -157,7 +157,9 @@ def list_data_reuse():
     context = _get_context()
 
     try:
-        tk.check_access("data_reuse_list", context, {})
+        # This page lists submissions in every state, which is sysadmin-only -
+        # listing approved submissions alone is public.
+        tk.check_access("data_reuse_list", context, {"include_all": True})
     except tk.NotAuthorized:
         return tk.abort(403, tk._("Not authorized to view data reuse submissions"))
 

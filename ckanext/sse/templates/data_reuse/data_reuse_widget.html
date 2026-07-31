@@ -14,7 +14,7 @@
         <i class="fa fa-edit"></i> {{ _('Share Data Usage Example') }}
       </a>
       
-      {% if h.check_access('data_reuse_list') %}
+      {% if h.check_access('data_reuse_list', {'include_all': True}) %}
         <a href="{{ h.url_for('data_reuse.list_data_reuse', package_id=pkg.id) }}" 
            class="btn btn-default">
           <i class="fa fa-list"></i> {{ _('View all reuse or idea') }}

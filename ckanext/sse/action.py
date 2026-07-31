@@ -676,6 +676,62 @@ def data_reuse_create(context, data_dict):
         raise tk.ValidationError(f"Failed to create data reuse submission: {str(e)}")
 
 
+PUBLIC_REUSE_DATA_FIELDS = (
+    "title",
+    "description",
+    "label",
+    "image_url",
+    "organisation_name",
+    "dashboard_url",
+)
+
+
+def _is_reuse_moderator(context):
+    """
+    Whether the caller moderates data reuse submissions.
+
+    Moderators see submissions in full - everyone else gets the public fields.
+    Internal calls (ignore_auth) count as moderators.
+    """
+    if context.get("ignore_auth"):
+        return True
+
+    user = context.get("auth_user_obj")
+
+    return bool(user and not user.is_anonymous and user.sysadmin)
+
+
+def _public_reuse_dict(submission_dict):
+    """
+    Drop the submitter's personal details from a submission.
+
+    The submission `data` is free-form JSONB holding both the fields the
+    portal renders and the ones only moderators should see (email address,
+    name, job title, contact preferences), so allowlist the public ones
+    rather than denylisting the rest.
+    """
+    data = submission_dict.get("data") or {}
+    public_data = {k: v for k, v in data.items() if k in PUBLIC_REUSE_DATA_FIELDS}
+
+    if not asbool(data.get("visible_org_permission") or False):
+        public_data["organisation_name"] = None
+
+    submission_dict["data"] = public_data
+    submission_dict.pop("user_id", None)
+
+    return submission_dict
+
+
+def _reuse_dataset_dict(context, package_id):
+    """
+    The dataset a submission points at, or None when the caller cannot see it.
+    """
+    try:
+        return tk.get_action("package_show")(context, {"id": package_id})
+    except (tk.NotAuthorized, tk.ObjectNotFound):
+        return None
+
+
 @tk.side_effect_free
 def data_reuse_list(context, data_dict):
     """
@@ -708,13 +764,16 @@ def data_reuse_list(context, data_dict):
 
     total_count = len(submissions)
     submissions = submissions[offset : offset + limit]
+    is_moderator = _is_reuse_moderator(context)
     result = []
     for submission in submissions:
         submission_dict = submission.as_dict()
+        if not is_moderator:
+            submission_dict = _public_reuse_dict(submission_dict)
         if include_dataset and submission.package_id:
-            submission_dict["dataset"] = tk.get_action("package_show")(
-                context, {"id": submission.package_id}
-            )
+            dataset = _reuse_dataset_dict(context, submission.package_id)
+            if dataset is not None:
+                submission_dict["dataset"] = dataset
         result.append(submission_dict)
 
     return {
@@ -744,10 +803,12 @@ def data_reuse_show(context, data_dict):
         raise tk.ObjectNotFound("Data reuse submission not found")
 
     submission_dict = submission.as_dict()
+    if not _is_reuse_moderator(context):
+        submission_dict = _public_reuse_dict(submission_dict)
     if include_dataset and submission.package_id:
-        submission_dict["dataset"] = tk.get_action("package_show")(
-            context, {"id": submission.package_id}
-        )
+        dataset = _reuse_dataset_dict(context, submission.package_id)
+        if dataset is not None:
+            submission_dict["dataset"] = dataset
     return submission_dict
 
 
@@ -811,9 +872,21 @@ def data_reuse_patch(context, data_dict):
     id = tk.get_or_bust(data_dict, "id")
     feedback = data_dict.get("feedback")
 
-    existing_dict = tk.get_action("data_reuse_show")(
-        context, {"id": id, "include_all": True}
-    )
+    # Submitters may patch their own submission, but moderating one - approving
+    # or rejecting it - stays with sysadmins.
+    if "state" in data_dict and not _is_reuse_moderator(context):
+        raise tk.NotAuthorized(
+            _("Only sysadmins can change the state of a data reuse submission")
+        )
+
+    submission = FormResponse.get(id, include_all=True)
+    if not submission:
+        raise tk.ObjectNotFound("Data reuse submission not found")
+
+    # Read the row itself rather than going through data_reuse_show: the patched
+    # dict is written straight back to the database, and a redacted read would
+    # erase the submitter's details.
+    existing_dict = submission.as_dict()
     patched_dict = dict(existing_dict)
     patched_dict.update(data_dict)
 

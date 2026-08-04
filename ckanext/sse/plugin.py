@@ -251,6 +251,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "data_reuse_show": auth.data_reuse_show,
             "data_reuse_update": auth.data_reuse_update,
             "data_reuse_delete": auth.data_reuse_delete,
+            "datastore_search_sql": auth.datastore_search_sql,
         }
 
     # ISignal

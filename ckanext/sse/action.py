@@ -960,15 +960,9 @@ def datastore_search_sql(original_action, context, data_dict):
     """
     Reject anonymous callers before the query reaches the database.
 
-    The chained auth function is not enough on its own. CKAN only reaches it
-    through ``check_access``, which ``search_sql`` calls *after*
-    ``get_table_and_function_names_from_sql`` has already run
-    ``EXPLAIN (VERBOSE, FORMAT JSON)`` on the submitted SQL, so an anonymous
-    caller could read planner errors back and probe for tables and columns.
-
-    ``side_effect_free`` is re-declared because chaining copies only this
-    function's attributes onto the partial CKAN builds, and the portal calls
-    this over GET.
+    The auth function is not enough: ``check_access`` runs after
+    ``search_sql`` has already EXPLAINed the SQL, so anonymous callers could
+    probe for tables and columns through planner errors.
     """
     user_obj = context.get('auth_user_obj')
     anonymous = user_obj is None or getattr(user_obj, 'is_anonymous', False)

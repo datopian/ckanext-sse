@@ -243,8 +243,8 @@ class SsePlugin(plugins.SingletonPlugin):
             "resources_stats": action.resources_stats
         }
 
-        # Only when the action exists: chaining onto a missing one raises at
-        # startup, and ckanext.datastore withholds it unless sqlsearch is on.
+        # Chaining onto a missing action raises at startup, and datastore
+        # withholds this one unless sqlsearch is enabled.
         if toolkit.asbool(
             toolkit.config.get("ckan.datastore.sqlsearch.enabled", False)
         ):

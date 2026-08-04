@@ -140,8 +140,7 @@ token api_token apikey api_key key secret client_secret
 DEFAULT_MAX_PARAM_VALUE = 512
 DEFAULT_MAX_PARAMS = 4096
 
-# Thresholds for tagging a SQL query in the audit trail. Neither rejects
-# anything; they exist so alerting can filter on ``flags``.
+# Tagging thresholds only -- nothing is rejected, alerting filters on ``flags``.
 DEFAULT_SLOW_QUERY_MS = 5000
 DEFAULT_LARGE_RESULT_ROWS = 10000
 
@@ -604,13 +603,7 @@ def _client_ip(forwarded_for, remote_addr, cdn_client_ip=None):
 @toolkit.chained_action
 @toolkit.side_effect_free
 def datastore_search_sql(original_action, context, data_dict):
-    """Record each SQL query: who ran it, how long it took, how much it
-    returned, and why it failed.
-
-    ``side_effect_free`` is re-declared because chaining copies only this
-    function's attributes onto the partial CKAN builds, and the portal calls
-    this over GET.
-    """
+    """Record each SQL query: who, how long, how much, and why it failed."""
     started = time.monotonic()
     try:
         result = original_action(context, data_dict)
@@ -656,8 +649,7 @@ def _log_sql_query(context, data_dict, started, result=None, error=None):
             ),
             sql=_trim_value(sql),
             sql_chars=len(sql),
-            # Groups repeats of one query -- a scripted sweep, a retry loop --
-            # without depending on the trimmed text.
+            # Groups repeats of one query without relying on trimmed text.
             sql_fingerprint=hashlib.sha256(
                 " ".join(sql.split()).encode("utf-8")
             ).hexdigest()[:16],
@@ -717,9 +709,8 @@ class SecurityAuditPlugin(plugins.SingletonPlugin):
 
     # IActions
     def get_actions(self):
-        # Registered only when the action exists: chaining onto a missing
-        # action raises at startup, and ``ckanext.datastore`` withholds
-        # ``datastore_search_sql`` unless sqlsearch is enabled.
+        # Chaining onto a missing action raises at startup, and datastore
+        # withholds this one unless sqlsearch is enabled.
         if not toolkit.asbool(
             toolkit.config.get("ckan.datastore.sqlsearch.enabled", False)
         ):

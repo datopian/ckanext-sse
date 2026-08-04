@@ -95,15 +95,9 @@ def datastore_search_sql(next_auth, context, data_dict):
     """
     Restrict ``datastore_search_sql`` to authenticated users.
 
-    Chained because ``ckanext.datastore`` already registers this name and
-    ``ckan/authz.py`` raises if two plugins claim one non-chained.
-
-    Omitting ``@tk.auth_allow_anonymous_access`` is not enough on its own:
-    ``is_authorized`` gates on ``auth_user_obj`` being absent, but the action
-    API sets it to flask-login's ``AnonymousUser`` (``ckan/views/api.py``),
-    which is truthy. Hence the explicit check, which reads ``is_anonymous``
-    rather than truthiness. ``user`` is still honoured so internal calls that
-    pass only a name keep working.
+    Chained because ``ckanext.datastore`` registers this name too. Checks
+    ``is_anonymous`` rather than truthiness: the action API sets
+    ``auth_user_obj`` to flask-login's ``AnonymousUser``, which is truthy.
     """
     user_obj = context.get('auth_user_obj')
     anonymous = user_obj is None or getattr(user_obj, 'is_anonymous', False)

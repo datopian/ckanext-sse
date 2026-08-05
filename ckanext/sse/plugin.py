@@ -8,7 +8,8 @@ import logging
 from ckanext.sse import action, auth
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
-from .model import PackageAccessRequest, FormResponse
+from ckanext.sse import password_policy
+from .model import PackageAccessRequest, FormResponse, UserPasswordHistory
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
     is_org_admin_by_package_id,
@@ -73,6 +74,8 @@ class SsePlugin(plugins.SingletonPlugin):
             PackageAccessRequest.__table__.create(meta.engine)
         if not FormResponse.__table__.exists(meta.engine):
             FormResponse.__table__.create(meta.engine)
+        if not UserPasswordHistory.__table__.exists(meta.engine):
+            UserPasswordHistory.__table__.create(meta.engine)
 
     # ITemplateHelpers
     def get_helpers(self):
@@ -80,6 +83,7 @@ class SsePlugin(plugins.SingletonPlugin):
                     'is_org_admin_by_package_id': is_org_admin_by_package_id,
         'is_admin_of_any_org': is_admin_of_any_org,
         'get_data_reuse_field_labels': get_data_reuse_field_labels,
+        'sse_password_policy_rules': password_policy.policy_rules,
         }
 
     # IPermissionLabels
@@ -120,7 +124,15 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IBlueprint
     def get_blueprint(self):
-        return [dataset.blueprint, *request_access_dashboard.get_blueprints(), admin.blueprint, data_reuse.blueprint]
+        return [
+            dataset.blueprint,
+            *request_access_dashboard.get_blueprints(),
+            admin.blueprint,
+            data_reuse.blueprint,
+            # Routeless -- it carries the password rotation check, which has to
+            # run before every view.
+            password_policy.blueprint,
+        ]
 
     # IConfigurer
     def update_config(self, config_):
@@ -217,6 +229,9 @@ class SsePlugin(plugins.SingletonPlugin):
             "ib1_trust_framework_validator": ib1_trust_framework_validator,
             "ib1_sensitivity_class_validator": ib1_sensitivity_class_validator,
             "ib1_dataset_assurance_validator": ib1_dataset_assurance_validator,
+            # Shadows CKAN's own validator of the same name, which is how the
+            # password policy reaches every schema that sets a password.
+            "user_password_validator": password_policy.user_password_validator,
         }
 
     # IActions
@@ -240,7 +255,11 @@ class SsePlugin(plugins.SingletonPlugin):
             "data_reuse_update": action.data_reuse_update,
             "data_reuse_patch": action.data_reuse_patch,
             "data_reuse_delete": action.data_reuse_delete,
-            "resources_stats": action.resources_stats
+            "resources_stats": action.resources_stats,
+            # Chained: they only record when a password changed, so the
+            # rotation window has something to measure from.
+            "user_create": password_policy.user_create,
+            "user_update": password_policy.user_update,
         }
 
     # IAuthFunctions

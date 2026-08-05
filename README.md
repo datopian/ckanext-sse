@@ -38,6 +38,9 @@ A custom CKAN extension built specifically for the Scottish and Southern Electri
 - **Signal Subscriptions:**  
   Integrates with CKAN’s signal system to extend or modify behavior at key events during the dataset lifecycle.
 
+- **Password Policy:**  
+  Replaces CKAN’s 8-character password rule with a strength policy, blocks reuse of previous passwords, and forces rotation on a fixed window. See [Password policy](#password-policy).
+
 ## Installation
 
 ### Prerequisites
@@ -81,6 +84,66 @@ pip install -e .
    ckanext.dcat.base_uri = http://your-ckan-instance-url
    ```
 
+## Password policy
+
+Implemented in `ckanext/sse/password_policy.py`, which documents the reasoning
+behind each hook. Three controls, all optional to configure and all on by
+default:
+
+**Strength.** CKAN’s only rule is “8 characters or longer”. This extension
+replaces its `user_password_validator`, so the policy applies everywhere a
+password is set — registration, the profile form, the forgotten-password
+reset, and `user_create`/`user_update` over the API. A password must:
+
+- be between 12 and 128 characters long;
+- contain an uppercase letter, a lowercase letter, a digit and a symbol
+  (anything that is not a letter or a digit, including a space, so passphrases
+  are not pushed towards punctuation);
+- not repeat the same character three or more times in a row;
+- not contain four or more sequential characters (`1234`, `abcd`, `9876`);
+- not be based on a common password — checked with common character
+  substitutions undone, so `P@ssw0rd!` is rejected along with `Password123`;
+- not contain the user’s username, full name or email address.
+
+The rules are rendered next to every password field from
+`h.sse_password_policy_rules()`, so the hint cannot drift from what is
+enforced.
+
+**Reuse.** Every password a user has held is recorded as a hash in the
+`user_password_history` table, and a new password is verified against the
+retained ones. The current password always counts, whatever the history length
+is set to. Rows past the configured length are deleted rather than kept.
+
+**Rotation.** Once a password is older than the window, the user is redirected
+to the profile form on any page request until they change it. Logout and the
+forgotten-password reset stay reachable, so the block is not a trap. The action
+API is exempt: an API token is a separate credential with its own lifecycle,
+and answering a JSON call with a redirect to an HTML form breaks the client
+rather than protecting anything.
+
+Nothing needs migrating and nobody is locked out on the day this ships: the
+history table is seeded from each user’s live password hash on their first
+request, which starts a full window for them. Later changes made outside the
+actions — `ckan user setpass`, for instance — are picked up the same way.
+
+### Settings
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `ckanext.sse.password.min_length` | `12` | Minimum length. Floor of 8. |
+| `ckanext.sse.password.max_length` | `128` | Maximum length. Caps the cost of hashing an oversized submission. |
+| `ckanext.sse.password.history_length` | `5` | Previous passwords that may not be reused. `0` checks only the current one. |
+| `ckanext.sse.password.expiry_days` | `90` | Rotation window. `0` disables the block entirely. |
+| `ckanext.sse.password.warn_days` | `14` | How far ahead of expiry to warn, once per browser session. `0` disables. |
+| `ckanext.sse.password.extra_blocklist` | – | Extra words banned anywhere in a password, space or comma separated. |
+
+### Note for tests
+
+`factories.User` defaults to a ten-character `faker.password()`, which this
+policy rejects, so a bare `factories.User()` raises `ValidationError` while the
+plugin is enabled. Pass an explicit password — see
+`ckanext/sse/tests/test_password_policy.py`.
+
 ## Usage
 
 Once installed and configured, the extension integrates seamlessly with CKAN. Key behaviors include:
@@ -105,6 +168,16 @@ Tests ensure the extension’s functionality remains robust. To run the tests, e
 
 ```bash
 pytest
+```
+
+`test.ini` inherits `../ckan/test-core.ini`, which assumes CKAN’s source sits
+alongside this repository. In the Docker development environment, where CKAN
+lives at `/srv/app/src/ckan` and the extensions at `/srv/app/src_extensions`,
+point pytest at an ini that inherits the right path and uses the `ckan_test`
+database:
+
+```bash
+pytest --ckan-ini /path/to/your-test.ini ckanext/sse/tests
 ```
 
 ### Contributing

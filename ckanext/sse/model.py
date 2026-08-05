@@ -1,7 +1,9 @@
 from datetime import datetime, date
 from collections import OrderedDict
 
-from sqlalchemy import orm, Column, String, Text, DateTime, ForeignKey, Enum
+from sqlalchemy import (
+    orm, Column, String, Text, DateTime, ForeignKey, Enum, Index,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Unicode
 from sqlalchemy.orm import relationship
@@ -148,6 +150,52 @@ class PackageAccessRequest(Base):
             Session.commit()
             return request
         return None
+
+
+class UserPasswordHistory(tk.BaseModel):
+    """One row per password a user has held, newest last.
+
+    Serves both halves of the password policy: the newest row's
+    ``created_at`` is when the password was last changed, which is what the
+    rotation window is measured from, and the stored hashes are what a
+    proposed new password is checked against for reuse.
+
+    The hash is copied from ``user.password`` rather than re-derived, so a row
+    is only ever as strong as CKAN's own storage -- pbkdf2-sha512 at the
+    rounds in force when it was set. Rows beyond the configured history length
+    are deleted rather than kept, so no more old credential material is
+    retained than the policy actually needs.
+
+    There is no unique constraint on ``(user_id, password_hash)``: pbkdf2
+    salts every hash, so the same password set twice produces two different
+    hashes and the database cannot recognise the repeat. Reuse is caught by
+    verifying the candidate against each stored hash instead -- see
+    ``ckanext.sse.password_policy.is_reused``.
+    """
+
+    __tablename__ = "user_password_history"
+    __table_args__ = (
+        # Every lookup is "the newest rows for this user", so the ordering
+        # column belongs in the index. Without it this is a sort per
+        # authenticated page request.
+        Index(
+            "idx_user_password_history_user_created",
+            "user_id",
+            "created_at",
+        ),
+    )
+
+    id = Column(Unicode(64), primary_key=True, default=make_uuid)
+    user_id = Column(String(60), ForeignKey("user.id"), nullable=False)
+    # Not String(n): the hash length is passlib's to decide, and it has grown
+    # before now.
+    password_hash = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship(User, foreign_keys=[user_id])
+
+    def __repr__(self):
+        return f"<UserPasswordHistory {self.user_id} {self.created_at}>"
 
 
 class FormResponse(DomainObject.DomainObject, tk.BaseModel):

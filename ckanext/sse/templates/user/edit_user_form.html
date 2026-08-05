@@ -1,0 +1,15 @@
+{% ckan_extends %}
+
+{# Two blocks, because CKAN renders one or the other: a sysadmin editing
+   somebody else gets ``sysadmin_password``, everyone else gets
+   ``change_password``. #}
+
+{% block sysadmin_password %}
+  {{ super() }}
+  {% snippet "snippets/password_policy.html" %}
+{% endblock %}
+
+{% block change_password %}
+  {{ super() }}
+  {% snippet "snippets/password_policy.html" %}
+{% endblock %}

@@ -284,7 +284,7 @@ def test_rehash_of_the_same_password_is_recognised():
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("with_plugins", "clean_db")
+@pytest.mark.usefixtures("with_plugins", "sse_tables")
 class TestHistory:
     def test_a_weak_password_cannot_be_registered(self):
         with pytest.raises(toolkit.ValidationError):
@@ -381,7 +381,7 @@ class TestHistory:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("with_plugins", "clean_db")
+@pytest.mark.usefixtures("with_plugins", "sse_tables")
 class TestRotation:
     def test_a_fresh_password_is_not_expired(self):
         user_obj = model.User.get(make_user()["id"])

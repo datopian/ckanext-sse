@@ -1,5 +1,39 @@
 """Password strength, reuse and rotation policy.
 
+Implements SSE's *Standard for Identification and Authentication* IA-5 and
+IA-5.1 as far as a CKAN portal can. Where the standard is written for Active
+Directory the nearest portal equivalent is used, and where a requirement is
+organisational rather than technical it is called out below rather than
+quietly dropped.
+
+IA-5.1, passphrase requirements, and where each one lives:
+
+===================================================== ======================
+12 characters or more, 15 for administration accounts ``check_strength``
+Not on a list of common/expected/compromised passwords ``_blocklist``
+Not contain any part of the username                  ``check_strength``
+Not be a single dictionary word                       ``_blocklist`` (partial)
+Not more than 4 repeating characters or digits        ``_has_repeat``
+No ascending or descending number sequences           ``_has_sequence``
+Not changed incrementally (Welcome100, Welcome101)    ``is_incremental``
+Not the same as any of the last 8 passwords           ``is_reused``
+New password on account recovery                      CKAN's reset flow
+Stored with an approved salted hash                   CKAN's pbkdf2-sha512
+===================================================== ======================
+
+IA-5 f, rotation: 365 days for non-privileged users, 60 for privileged ones.
+"Privileged" is read as a CKAN sysadmin; organisation admins are not system
+administrators and are treated as ordinary users.
+
+Deliberately *not* enforced here, because nothing in a CKAN extension can:
+passwords transmitted only under TLS (IA-5.1 c, an ingress concern); admin
+accounts not sharing a password with the holder's AD account (f); passphrases
+not reused outside SSE. Note also that the standard prefers passphrases and
+the "three random word" approach, so there is no character-class requirement
+-- demanding an uppercase, a digit and a symbol would push users away from the
+thing the standard asks for. ``ckanext.sse.password.require_character_classes``
+turns one on for a deployment that wants it.
+
 Three separate controls, all driven from this module:
 
 * **Strength** -- CKAN's own rule is "8 characters or longer" and nothing
@@ -69,18 +103,26 @@ updated in place, keeping the original date. See ``_looks_like_rehash``.
 Configuration (all optional)
 ----------------------------
 
-============================================== ==========================
-``ckanext.sse.password.min_length``            12
-``ckanext.sse.password.max_length``            128
-``ckanext.sse.password.history_length``        5 (0 disables the reuse check)
-``ckanext.sse.password.expiry_days``           90 (0 disables rotation)
-``ckanext.sse.password.warn_days``             14 (0 disables the warning)
-``ckanext.sse.password.extra_blocklist``       extra banned words
-============================================== ==========================
+===================================================== ======================
+``ckanext.sse.password.min_length``                   12
+``ckanext.sse.password.privileged_min_length``        15
+``ckanext.sse.password.max_length``                   128
+``ckanext.sse.password.history_length``               8 (0: current only)
+``ckanext.sse.password.expiry_days``                  365 (0 disables)
+``ckanext.sse.password.privileged_expiry_days``       60 (0 disables)
+``ckanext.sse.password.warn_days``                    14 (0 disables)
+``ckanext.sse.password.max_repeat``                   4
+``ckanext.sse.password.max_digit_sequence``           2
+``ckanext.sse.password.max_letter_sequence``          3
+``ckanext.sse.password.require_character_classes``    false
+``ckanext.sse.password.blocklist_file``               path, one word per line
+``ckanext.sse.password.extra_blocklist``              extra banned words
+===================================================== ======================
 """
 
 import datetime
 import logging
+import os
 import re
 import secrets
 import string
@@ -100,23 +142,47 @@ log = logging.getLogger(__name__)
 
 _ = toolkit._
 
+# IA-5.1 g: "passphrases (12 characters or more)", and "Administration
+# accounts passphrases should be minimum of 15 characters".
 DEFAULT_MIN_LENGTH = 12
+DEFAULT_PRIVILEGED_MIN_LENGTH = 15
 
 # Not tidiness: the candidate is fed to pbkdf2 once per history entry plus
 # once to store it, and pbkdf2 cost is linear in input length. Without a cap a
 # multi-megabyte "password" is a cheap way to tie up a worker.
 DEFAULT_MAX_LENGTH = 128
 
-DEFAULT_HISTORY_LENGTH = 5
-DEFAULT_EXPIRY_DAYS = 90
+# IA-5.1: "Not be the same as any of the last 8 passwords".
+DEFAULT_HISTORY_LENGTH = 8
+
+# IA-5 f: 365 days for non-privileged users, 60 for privileged ones.
+DEFAULT_EXPIRY_DAYS = 365
+DEFAULT_PRIVILEGED_EXPIRY_DAYS = 60
+
 DEFAULT_WARN_DAYS = 14
 
-# A run of this many identical characters is rejected, so "aaa" is out.
-MAX_REPEAT = 3
+# IA-5.1: "Not have more than 4 repeating characters or digits", so a run of
+# five is the first one rejected.
+DEFAULT_MAX_REPEAT = 4
 
-# A run of this many consecutive codepoints is rejected, so "1234", "abcd" and
-# "9876" are out.
-MAX_SEQUENCE = 4
+# IA-5.1: "Not contain ascending or descending number sequences". No length is
+# given, so three is taken as the shortest run that is recognisably a sequence
+# -- two consecutive digits happen by accident in any date.
+DEFAULT_MAX_DIGIT_SEQUENCE = 2
+
+# The standard names number sequences only. Letter runs are held to four
+# because "abcd" is the same idea and costs nothing to catch.
+DEFAULT_MAX_LETTER_SEQUENCE = 3
+
+# How far either side of the number in a password to look when deciding
+# whether it is the previous password with the number bumped.
+DEFAULT_INCREMENT_WINDOW = 3
+
+# IA-5.1: "For other Service accounts, passphrases must be set to 20
+# characters or more". CKAN has no service accounts as such, but the accounts
+# the frontend creates for itself are the nearest thing, and their passwords
+# are generated rather than typed, so length is free.
+DEFAULT_SERVICE_ACCOUNT_LENGTH = 20
 
 # Symbols used when generating a password. Quotes, backslashes and spaces are
 # left out: generated passwords get passed through shells, JSON bodies and
@@ -210,6 +276,11 @@ _LATEST_ATTR = "sse_password_latest"
 # so the warning appears once per browser session rather than on every page.
 _WARNED_SESSION_KEY = "sse_password_expiry_warned"
 
+# The blocklist file, keyed on its path and mtime. Module level rather than
+# per-request: the file is the same for every worker and rereading a
+# compromised-password corpus on each password change would be wasteful.
+_BLOCKLIST_CACHE = {"stamp": None, "words": frozenset()}
+
 
 # --------------------------------------------------------------------------
 # Configuration
@@ -227,14 +298,30 @@ def _int_config(key, default, minimum=0):
     return max(minimum, value)
 
 
-def min_length():
+def is_privileged(user):
+    """Whether the standard's "administration account" rules apply.
+
+    A CKAN sysadmin. Organisation admins administer a publisher's datasets,
+    not the system, so they are held to the ordinary user rules.
+    """
+    return bool(user is not None and getattr(user, "sysadmin", False))
+
+
+def min_length(privileged=False):
+    if privileged:
+        return max(
+            _int_config("ckanext.sse.password.privileged_min_length",
+                        DEFAULT_PRIVILEGED_MIN_LENGTH, minimum=8),
+            _int_config("ckanext.sse.password.min_length",
+                        DEFAULT_MIN_LENGTH, minimum=8),
+        )
     return _int_config("ckanext.sse.password.min_length",
                        DEFAULT_MIN_LENGTH, minimum=8)
 
 
 def max_length():
     return max(
-        min_length(),
+        min_length(privileged=True),
         _int_config("ckanext.sse.password.max_length", DEFAULT_MAX_LENGTH,
                     minimum=8),
     )
@@ -246,8 +333,11 @@ def history_length():
                        DEFAULT_HISTORY_LENGTH)
 
 
-def expiry_days():
+def expiry_days(privileged=False):
     """Rotation window in days. 0 disables rotation entirely."""
+    if privileged:
+        return _int_config("ckanext.sse.password.privileged_expiry_days",
+                           DEFAULT_PRIVILEGED_EXPIRY_DAYS)
     return _int_config("ckanext.sse.password.expiry_days",
                        DEFAULT_EXPIRY_DAYS)
 
@@ -257,9 +347,83 @@ def warn_days():
     return _int_config("ckanext.sse.password.warn_days", DEFAULT_WARN_DAYS)
 
 
+def max_repeat():
+    """Longest run of one repeated character that is still allowed."""
+    return _int_config("ckanext.sse.password.max_repeat",
+                       DEFAULT_MAX_REPEAT, minimum=1)
+
+
+def max_digit_sequence():
+    """Longest run of consecutive digits that is still allowed."""
+    return _int_config("ckanext.sse.password.max_digit_sequence",
+                       DEFAULT_MAX_DIGIT_SEQUENCE, minimum=1)
+
+
+def max_letter_sequence():
+    """Longest run of consecutive letters that is still allowed."""
+    return _int_config("ckanext.sse.password.max_letter_sequence",
+                       DEFAULT_MAX_LETTER_SEQUENCE, minimum=1)
+
+
+def require_character_classes():
+    """Whether to demand upper, lower, digit and symbol.
+
+    Off by default: the standard asks for passphrases and the "three random
+    word" approach, and a character-class rule works against both.
+    """
+    return toolkit.asbool(
+        toolkit.config.get("ckanext.sse.password.require_character_classes",
+                           False)
+    )
+
+
 def _word_list(configured, builtin):
     words = re.split(r"[,\s]+", "{} {}".format(builtin, configured or "").strip())
     return {word.lower() for word in words if len(word) > 3}
+
+
+def _blocklist_file_words():
+    """The maintained blocklist, read from disk and cached on its mtime.
+
+    IA-5.1 a and b call for a list of common, expected and compromised
+    passwords that is "updated continually", which a list baked into this
+    module cannot be. Point ``ckanext.sse.password.blocklist_file`` at a file
+    of one word per line -- a compromised-password corpus, a dictionary, or
+    both -- and replacing it is a deployment step rather than a release.
+
+    Cached on (path, mtime, size) so a replaced file is picked up without a
+    restart and an unchanged one is not re-read on every password change.
+    """
+    path = (toolkit.config.get("ckanext.sse.password.blocklist_file", "")
+            or "").strip()
+    if not path:
+        return frozenset()
+
+    try:
+        stat = os.stat(path)
+        stamp = (path, stat.st_mtime, stat.st_size)
+    except OSError:
+        log.warning("Cannot read ckanext.sse.password.blocklist_file %r", path)
+        return frozenset()
+
+    cached = _BLOCKLIST_CACHE.get("stamp")
+    if cached == stamp:
+        return _BLOCKLIST_CACHE["words"]
+
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
+            words = frozenset(
+                line.strip().lower() for line in handle
+                if len(line.strip()) > 3 and not line.startswith("#")
+            )
+    except OSError:
+        log.warning("Cannot read ckanext.sse.password.blocklist_file %r", path)
+        return frozenset()
+
+    _BLOCKLIST_CACHE["stamp"] = stamp
+    _BLOCKLIST_CACHE["words"] = words
+    log.info("Loaded %s password blocklist entries from %s", len(words), path)
+    return words
 
 
 def _banned_substrings():
@@ -269,7 +433,13 @@ def _banned_substrings():
 
 
 def _banned_whole():
-    return _word_list("", BANNED_WHOLE)
+    """Words banned as the whole password, give or take a couple of letters.
+
+    The file lives here rather than in the substring list because a
+    compromised-password corpus is full of ordinary words, and banning those
+    as substrings would ban the passphrases the standard asks for.
+    """
+    return _word_list("", BANNED_WHOLE) | _blocklist_file_words()
 
 
 # --------------------------------------------------------------------------
@@ -277,37 +447,63 @@ def _banned_whole():
 # --------------------------------------------------------------------------
 
 
-def policy_rules():
+def policy_rules(privileged=None):
     """The policy in words, for error messages and for the forms.
 
     Generated from the live configuration rather than written out twice: a
     hint that disagrees with the validator is worse than no hint.
+
+    ``privileged`` defaults to whoever is signed in, so a sysadmin editing
+    their own profile is shown the 15-character rule that will actually be
+    applied to them.
     """
+    if privileged is None:
+        privileged = is_privileged(_current_user())
+
     rules = [
         _("be between {min} and {max} characters long").format(
-            min=min_length(), max=max_length()
+            min=min_length(privileged), max=max_length()
         ),
-        _("contain an uppercase letter, a lowercase letter, a digit and a "
-          "symbol"),
-        _("not repeat the same character {n} or more times in a row").format(
-            n=MAX_REPEAT
+        # The standard prefers passphrases, so the hint suggests one rather
+        # than leaving people to invent something that merely passes.
+        _("preferably be a passphrase of three or more random words"),
+    ]
+    if require_character_classes():
+        rules.append(
+            _("contain an uppercase letter, a lowercase letter, a digit and a "
+              "symbol")
+        )
+    rules += [
+        _("not repeat the same character more than {n} times in a row").format(
+            n=max_repeat()
         ),
-        _("not contain {n} or more sequential characters, such as 1234 or "
-          "abcd").format(n=MAX_SEQUENCE),
-        _("not be based on a common password, your username, your full name "
-          "or your email address"),
+        _("not contain ascending or descending sequences, such as 123 or "
+          "abcd"),
+        _("not be a common password, a single dictionary word, or contain "
+          "your username, full name or email address"),
     ]
     if history_length():
         rules.append(
-            _("not be one of your {n} previous passwords").format(
-                n=history_length()
+            _("not be one of your {n} previous passwords, nor one of them "
+              "with the number changed").format(n=history_length())
+        )
+    if expiry_days(privileged):
+        rules.append(
+            _("be changed at least every {n} days").format(
+                n=expiry_days(privileged)
             )
         )
-    if expiry_days():
-        rules.append(
-            _("be changed at least every {n} days").format(n=expiry_days())
-        )
     return rules
+
+
+def _current_user():
+    """The signed-in user, or ``None`` outside a request."""
+    if not has_request_context():
+        return None
+    user = toolkit.current_user
+    if user is None or getattr(user, "is_anonymous", True):
+        return None
+    return user
 
 
 def _normalise(password, undo_substitutions):
@@ -319,30 +515,53 @@ def _normalise(password, undo_substitutions):
 
 
 def _has_repeat(password):
-    return re.search(r"(.)\1{%d,}" % (MAX_REPEAT - 1), password) is not None
+    """Whether one character repeats more times in a row than allowed."""
+    return re.search(r"(.)\1{%d,}" % max_repeat(), password) is not None
 
 
 def _has_sequence(password):
     """Whether the password contains a run of consecutive codepoints.
 
-    Catches ``1234`` and ``abcd`` in either direction. Codepoint arithmetic
+    Catches ``123`` and ``abcd`` in either direction. Codepoint arithmetic
     rather than a keyboard map: ``qwerty`` and friends are handled by the word
-    list, and the point here is the numeric and alphabetic runs people reach
-    for to satisfy a character-class rule.
+    list, and the point here is the ascending and descending runs the standard
+    names.
+
+    Digits and letters are counted separately because the standard is explicit
+    about number sequences and silent about letters, so digits are held to the
+    shorter run.
     """
-    run = 1
+    digits = max_digit_sequence()
+    letters = max_letter_sequence()
+
+    start = 0
     step = 0
-    for previous, current in zip(password, password[1:]):
-        delta = ord(current) - ord(previous)
-        if delta in (1, -1) and (step == 0 or delta == step):
+    for index in range(1, len(password)):
+        delta = ord(password[index]) - ord(password[index - 1])
+        if delta in (1, -1) and step in (0, delta):
             step = delta
-            run += 1
-            if run >= MAX_SEQUENCE:
-                return True
+            continue
+        if _sequence_too_long(password[start:index], digits, letters):
+            return True
+        # A pair that broke the run because it runs the other way still starts
+        # a run of its own.
+        if delta in (1, -1):
+            start, step = index - 1, delta
         else:
-            step = delta if delta in (1, -1) else 0
-            run = 2 if step else 1
-    return False
+            start, step = index, 0
+    return _sequence_too_long(password[start:], digits, letters)
+
+
+def _sequence_too_long(run, digits, letters):
+    """Whether one run of consecutive codepoints is over its limit.
+
+    A mixed run ("yz01") is neither digits nor letters and is left alone --
+    nobody types that as a sequence, and the standard is about the ones people
+    do type.
+    """
+    if len(run) > digits and run.isdigit():
+        return True
+    return len(run) > letters and run.isalpha()
 
 
 def _identifier_words(*values):
@@ -362,7 +581,7 @@ def _identifier_words(*values):
     return words
 
 
-def check_strength(password, identifiers=()):
+def check_strength(password, identifiers=(), privileged=False):
     """Every way ``password`` fails the policy, as a list of phrases.
 
     Phrases, not sentences: the caller joins them into one message because
@@ -372,40 +591,41 @@ def check_strength(password, identifiers=()):
     if not isinstance(password, str):
         return [_("be a string")]
 
+    minimum = min_length(privileged)
     failures = []
-    if len(password) < min_length():
+    if len(password) < minimum:
         failures.append(
-            _("be at least {n} characters long").format(n=min_length())
+            _("be at least {n} characters long").format(n=minimum)
         )
     if len(password) > max_length():
         failures.append(
             _("be no more than {n} characters long").format(n=max_length())
         )
 
-    missing = []
-    if not any(char.islower() for char in password):
-        missing.append(_("a lowercase letter"))
-    if not any(char.isupper() for char in password):
-        missing.append(_("an uppercase letter"))
-    if not any(char.isdigit() for char in password):
-        missing.append(_("a digit"))
-    # Anything that is not a letter or a digit counts, including a space, so
-    # passphrases are not pushed towards punctuation soup.
-    if not any(not char.isalnum() for char in password):
-        missing.append(_("a symbol"))
-    if missing:
-        failures.append(_("contain {}").format(", ".join(missing)))
+    if require_character_classes():
+        missing = []
+        if not any(char.islower() for char in password):
+            missing.append(_("a lowercase letter"))
+        if not any(char.isupper() for char in password):
+            missing.append(_("an uppercase letter"))
+        if not any(char.isdigit() for char in password):
+            missing.append(_("a digit"))
+        # Anything that is not a letter or a digit counts, including a space,
+        # so passphrases are not pushed towards punctuation soup.
+        if not any(not char.isalnum() for char in password):
+            missing.append(_("a symbol"))
+        if missing:
+            failures.append(_("contain {}").format(", ".join(missing)))
 
     if _has_repeat(password):
         failures.append(
-            _("not repeat the same character {n} or more times in a "
-              "row").format(n=MAX_REPEAT)
+            _("not repeat the same character more than {n} times in a "
+              "row").format(n=max_repeat())
         )
     if _has_sequence(password):
         failures.append(
-            _("not contain {n} or more sequential characters").format(
-                n=MAX_SEQUENCE
-            )
+            _("not contain ascending or descending sequences such as 123 or "
+              "abcd")
         )
 
     # Both forms are checked: the plain one catches "Password123", the
@@ -440,14 +660,17 @@ def generate_password(length=None):
     Candidates are rejected by ``check_strength`` rather than assembled to
     satisfy each rule, so the generator cannot drift away from the policy --
     if a rule is added, this keeps producing valid passwords without being
-    touched.
+    touched. Checked against the privileged minimum whoever it is for, which
+    also puts it at the 20 characters the standard asks of service accounts.
     """
-    length = max(length or min_length() + 8, min_length())
-    length = min(length, max_length())
+    floor = max(min_length(privileged=True), DEFAULT_SERVICE_ACCOUNT_LENGTH)
+    length = min(max(length or floor, floor), max_length())
     alphabet = string.ascii_letters + string.digits + GENERATED_SYMBOLS
     while True:
-        candidate = "".join(secrets.choice(alphabet) for _unused in range(length))
-        if not check_strength(candidate):
+        candidate = "".join(
+            secrets.choice(alphabet) for _unused in range(length)
+        )
+        if not check_strength(candidate, privileged=True):
             return candidate
 
 
@@ -598,20 +821,80 @@ def is_reused(password, user):
         hashes += [row.password_hash for row in _history(user.id,
                                                         history_length())]
 
-    for stored in hashes:
-        if not stored:
-            continue
-        try:
-            # Legacy sha1 hashes (CKAN < 2.0) are not pbkdf2 and make verify
-            # raise. They belong to passwords nobody can still be reusing
-            # deliberately, so skipping them is no loss.
-            if not pbkdf2_sha512.identify(stored):
+    return any(_matches(password, stored) for stored in hashes)
+
+
+def _matches(password, stored):
+    """Whether ``password`` is the one behind ``stored``, tolerating junk."""
+    if not stored:
+        return False
+    try:
+        # Legacy sha1 hashes (CKAN < 2.0) are not pbkdf2 and make verify
+        # raise. They belong to passwords nobody can still be reusing
+        # deliberately, so skipping them is no loss.
+        if not pbkdf2_sha512.identify(stored):
+            return False
+        return bool(pbkdf2_sha512.verify(password, stored))
+    except (ValueError, TypeError):
+        return False
+
+
+def _increment_window():
+    return _int_config("ckanext.sse.password.increment_window",
+                       DEFAULT_INCREMENT_WINDOW)
+
+
+def incremental_variants(password):
+    """Passwords that ``password`` could be a numeric bump of.
+
+    IA-5.1 forbids a password being "changed incrementally on password
+    change, e.g. Welcome100, Welcome101, Welcome102". Only the hashes of
+    previous passwords are stored, so the previous one cannot be read and
+    compared -- instead the candidates it *would* have been are reconstructed
+    from the new password and each is verified against the stored hash.
+
+    The last run of digits anywhere in the password is the one varied, so
+    "Summer2024!" catches "Summer2023!" as well as the trailing-number case
+    the standard spells out. Both zero-padded and bare forms are produced,
+    since "Welcome09" -> "Welcome10" changes the width. Dropping the digits
+    entirely covers "Welcome" -> "Welcome1".
+    """
+    runs = list(re.finditer(r"\d+", password))
+    if not runs:
+        return []
+
+    run = runs[-1]
+    prefix, digits, suffix = (
+        password[:run.start()], run.group(), password[run.end():]
+    )
+    value = int(digits)
+    width = len(digits)
+
+    variants = {prefix + suffix}
+    for delta in range(1, _increment_window() + 1):
+        for candidate in (value - delta, value + delta):
+            if candidate < 0:
                 continue
-            if pbkdf2_sha512.verify(password, stored):
-                return True
-        except (ValueError, TypeError):
-            continue
-    return False
+            variants.add(prefix + str(candidate) + suffix)
+            variants.add(prefix + str(candidate).zfill(width) + suffix)
+
+    variants.discard(password)
+    return sorted(variants)
+
+
+def is_incremental(password, user):
+    """Whether ``password`` is the user's current password with a bumped number.
+
+    Checked against the current password alone, not the whole history: the
+    standard's wording is about a password being changed incrementally *on
+    password change*, and each extra hash multiplies the number of pbkdf2
+    verifications by the size of the candidate set.
+    """
+    stored = getattr(user, "password", None) if user is not None else None
+    if not stored:
+        return False
+    return any(_matches(variant, stored)
+               for variant in incremental_variants(password))
 
 
 # --------------------------------------------------------------------------
@@ -672,20 +955,35 @@ def user_password_validator(key, data, errors, context):
         if isinstance(value_, str) and value_
     ]
 
-    failures = check_strength(value, identifiers)
+    # A sysadmin is held to the administration-account minimum, whether the
+    # flag is already on the row or is being granted in this very call.
+    granting = data.get(("sysadmin",))
+    if granting is None or isinstance(granting, Missing):
+        granting = False
+    privileged = is_privileged(user) or toolkit.asbool(granting)
+
+    failures = check_strength(value, identifiers, privileged=privileged)
     if failures:
         errors[("password",)].append(
             _("Your password must {}.").format("; ".join(failures))
         )
-        # Stop here rather than also running the reuse check: a password that
-        # fails the policy is being rejected either way, and the reuse check
-        # costs a pbkdf2 verification per stored hash.
+        # Stop here rather than also running the reuse checks: a password that
+        # fails the policy is being rejected either way, and those cost a
+        # pbkdf2 verification apiece.
         return
 
     if is_reused(value, user):
         errors[("password",)].append(
             _("You have used this password before. Please choose a password "
               "you have not used on this account.")
+        )
+        return
+
+    if is_incremental(value, user):
+        errors[("password",)].append(
+            _("This is your current password with the number changed. Please "
+              "choose a different password rather than an increment of the "
+              "one it replaces.")
         )
 
 
@@ -759,7 +1057,7 @@ def user_update(up_func, context, data_dict):
 
 def expires_at(user):
     """When this user's password expires, or ``None`` if it cannot."""
-    days = expiry_days()
+    days = expiry_days(is_privileged(user))
     if not days:
         return None
     latest = latest_change(user)
@@ -805,11 +1103,11 @@ def enforce_rotation():
 def _enforce_rotation():
     if not has_request_context():
         return None
-    if not expiry_days() and not warn_days():
-        return None
 
     user = toolkit.current_user
     if user is None or getattr(user, "is_anonymous", True):
+        return None
+    if not expiry_days(is_privileged(user)) and not warn_days():
         return None
     # A pending invitee is mid-way through setting their first password and a
     # deleted account is on its way out; neither has a rotation to enforce.
@@ -838,7 +1136,8 @@ def _enforce_rotation():
     # says why rather than repeating all of them.
     toolkit.h.flash_error(
         _("Your password is more than {days} days old. Choose a new one "
-          "before continuing.").format(days=expiry_days())
+          "before continuing.").format(
+              days=expiry_days(is_privileged(user)))
     )
     return toolkit.redirect_to(CHANGE_PASSWORD_ENDPOINT, id=user.name)
 

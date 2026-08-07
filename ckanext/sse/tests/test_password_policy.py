@@ -22,6 +22,7 @@ import ckan.plugins.toolkit as toolkit
 from ckan.common import session
 from ckan.model.meta import Session
 from ckan.tests import factories
+from ckan.tests.helpers import changed_config
 
 from ckanext.sse import password_policy as pp
 from ckanext.sse.model import UserPasswordHistory
@@ -105,7 +106,8 @@ def backdate(user_id, days):
     "password",
     [
         "Tr0mb0ne-Yak!79",
-        "correct horse Battery 9!",   # a space counts as the symbol
+        "correct horse Battery staple",   # the "three random word" approach
+        "wombat lantern rivet",           # lowercase, no digits, no symbols
         "Wombat-Fl!ng62p",
     ],
 )
@@ -118,12 +120,9 @@ def test_accepts_strong_passwords(password):
     [
         "Sh0rt!aB",            # under the minimum length
         "x" * 200 + "A1!",     # over the maximum length
-        "nouppercase1!x",
-        "NOLOWERCASE1!X",
-        "NoDigitsAtAll!x",
-        "NoSymbolsHere12",
-        "Whaaaat-Yak!79",      # three of the same character in a row
-        "wxyz-Tr0mbone!7",     # four sequential characters
+        "Whaaaaat-Yak!79",     # five of the same character in a row
+        "wxyz-Tr0mbone!7",     # four sequential letters
+        "Trombone-123-Yak",    # three sequential digits
         "Password-Yak!79",     # a banned word, verbatim
         "P@ssw0rd-Yak!7",      # the same word behind substitutions
         "Monkey2026!!",        # a common password with characters bolted on
@@ -131,6 +130,22 @@ def test_accepts_strong_passwords(password):
 )
 def test_rejects_weak_passwords(password):
     assert pp.check_strength(password) != []
+
+
+def test_no_character_classes_are_demanded_by_default():
+    """The standard asks for passphrases, so complexity rules are off.
+
+    A rule demanding an uppercase, a digit and a symbol works directly
+    against the "three random word" approach the standard recommends.
+    """
+    assert pp.check_strength("wombat lantern rivet") == []
+
+
+@pytest.mark.ckan_config(
+    "ckanext.sse.password.require_character_classes", "true")
+def test_character_classes_can_be_demanded():
+    assert pp.check_strength("wombat lantern rivet") != []
+    assert pp.check_strength("Wombat-Fl!ng62p") == []
 
 
 def test_rejects_a_password_containing_the_users_own_details():
@@ -146,11 +161,25 @@ def test_a_common_word_inside_a_longer_passphrase_is_allowed():
 
 def test_generated_passwords_satisfy_the_policy():
     for _unused in range(25):
-        assert pp.check_strength(pp.generate_password()) == []
+        assert pp.check_strength(pp.generate_password(),
+                                 privileged=True) == []
+
+
+def test_generated_passwords_meet_the_service_account_length():
+    assert len(pp.generate_password()) >= pp.DEFAULT_SERVICE_ACCOUNT_LENGTH
 
 
 def test_generated_passwords_differ():
     assert len({pp.generate_password() for _unused in range(10)}) == 10
+
+
+def test_administration_accounts_need_a_longer_passphrase():
+    """IA-5.1 g: 12 characters for users, 15 for administration accounts."""
+    twelve = "wombat rivet"
+    assert len(twelve) == 12
+    assert pp.check_strength(twelve) == []
+    assert pp.check_strength(twelve, privileged=True) != []
+    assert pp.check_strength("wombat lantern rivet", privileged=True) == []
 
 
 @pytest.mark.ckan_config("ckanext.sse.password.min_length", "16")
@@ -169,24 +198,75 @@ def test_extra_blocklist_words_are_banned():
     assert pp.check_strength("Wombat-Fl!ng62p") != []
 
 
+def test_a_maintained_blocklist_file_is_read(tmp_path):
+    """IA-5.1 a and b: the list has to be updatable without a release."""
+    listing = tmp_path / "compromised.txt"
+    listing.write_text("# a comment\nhippopotamus\n\n")
+    with changed_config("ckanext.sse.password.blocklist_file", str(listing)):
+        assert pp.check_strength("hippopotamus") != []
+        assert pp.check_strength("hippopotamus rivet lantern") == []
+
+        # Replacing the file is picked up without a restart.
+        listing.write_text("# a comment\n")
+        assert pp.check_strength("hippopotamus") == []
+
+
 def test_policy_rules_are_described():
-    rules = pp.policy_rules()
+    rules = pp.policy_rules(privileged=False)
     assert any("12" in rule for rule in rules)
-    assert any("90" in rule for rule in rules)
+    assert any(str(pp.DEFAULT_EXPIRY_DAYS) in rule for rule in rules)
+    assert any("passphrase" in rule for rule in rules)
+
+    privileged = pp.policy_rules(privileged=True)
+    assert any("15" in rule for rule in privileged)
+    assert any(str(pp.DEFAULT_PRIVILEGED_EXPIRY_DAYS) in rule
+               for rule in privileged)
 
 
 @pytest.mark.parametrize(
     "password, expected",
     [
-        ("abcd", True),
-        ("4321", True),
-        ("abc", False),
+        ("abcd", True),        # four sequential letters
+        ("abc", False),        # three is allowed
+        ("123", True),         # three sequential digits is not
+        ("4321", True),        # descending too
+        ("12", False),
         ("ab12cd", False),
+        ("Summer2024 rivet", False),
         ("Tr0mb0ne-Yak!79", False),
     ],
 )
 def test_sequence_detection(password, expected):
     assert pp._has_sequence(password) is expected
+
+
+@pytest.mark.parametrize(
+    "password, expected",
+    [
+        ("aaaa", False),       # four repeats is allowed
+        ("aaaaa", True),       # five is not
+        ("Whaaaat", False),
+        ("Whaaaaat", True),
+    ],
+)
+def test_repeat_detection(password, expected):
+    assert pp._has_repeat(password) is expected
+
+
+def test_incremental_variants_reconstruct_the_previous_password():
+    variants = pp.incremental_variants("Welcome101")
+    assert "Welcome100" in variants
+    assert "Welcome102" in variants
+    assert "Welcome" in variants          # the digits dropped entirely
+    assert "Welcome101" not in variants   # itself is not a variant
+
+    # The last run of digits anywhere, not only a trailing one.
+    assert "Summer2023!" in pp.incremental_variants("Summer2024!")
+
+    # Zero padding is preserved as well as dropped, since the width can change.
+    assert "Welcome09" in pp.incremental_variants("Welcome10")
+
+    assert pp.incremental_variants("no digits here") == []
 
 
 def test_rehash_of_the_same_password_is_recognised():
@@ -275,6 +355,26 @@ class TestHistory:
         assert row is not None
         assert not pp.is_expired(user_obj)
 
+    def test_the_last_eight_passwords_are_retained_by_default(self):
+        """IA-5.1: "Not be the same as any of the last 8 passwords"."""
+        user = make_user()
+        for n in range(10):
+            set_password(user, "quixotic wobble %s" % chr(98 + n))
+        assert len(pp._history(user["id"])) == 8
+        assert pp.history_length() == 8
+
+    def test_a_password_cannot_be_bumped_by_a_number(self):
+        """IA-5.1: not "changed incrementally, e.g. Welcome100, Welcome101"."""
+        user = make_user(password="quixotic wobble 100")
+        with pytest.raises(toolkit.ValidationError) as raised:
+            set_password(user, "quixotic wobble 101")
+        assert "number changed" in str(raised.value.error_dict)
+
+    def test_an_unrelated_password_with_a_number_is_accepted(self):
+        user = make_user(password="quixotic wobble 100")
+        set_password(user, "lantern rivet 42")
+        assert len(pp._history(user["id"])) == 2
+
 
 # --------------------------------------------------------------------------
 # Rotation
@@ -289,21 +389,35 @@ class TestRotation:
         assert pp.days_until_expiry(user_obj) == pp.DEFAULT_EXPIRY_DAYS - 1
 
     def test_a_password_past_the_window_is_expired(self):
+        """IA-5 f: 365 days for a non-privileged user."""
         user = make_user()
-        backdate(user["id"], days=91)
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS - 1)
+        assert pp.is_expired(model.User.get(user["id"])) is False
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 1)
         assert pp.is_expired(model.User.get(user["id"])) is True
+
+    def test_a_privileged_password_expires_sooner(self):
+        """IA-5 f: 60 days for a privileged user."""
+        user = make_user(sysadmin=True)
+        user_obj = model.User.get(user["id"])
+        assert pp.is_privileged(user_obj) is True
+
+        backdate(user["id"], days=pp.DEFAULT_PRIVILEGED_EXPIRY_DAYS - 1)
+        assert pp.is_expired(user_obj) is False
+        backdate(user["id"], days=pp.DEFAULT_PRIVILEGED_EXPIRY_DAYS + 1)
+        assert pp.is_expired(user_obj) is True
 
     @pytest.mark.ckan_config("ckanext.sse.password.expiry_days", "0")
     def test_rotation_can_be_switched_off(self):
         user = make_user()
-        backdate(user["id"], days=500)
+        backdate(user["id"], days=5000)
         user_obj = model.User.get(user["id"])
         assert pp.days_until_expiry(user_obj) is None
         assert pp.is_expired(user_obj) is False
 
     def test_an_expired_password_blocks_a_page(self, app):
         user = make_user()
-        backdate(user["id"], days=120)
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
         response = app.get(
             "/dataset",
             extra_environ={"REMOTE_USER": user["name"]},
@@ -315,22 +429,22 @@ class TestRotation:
 
     def test_an_expired_password_does_not_block_the_change_form(self, app):
         user = make_user()
-        backdate(user["id"], days=120)
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
         assert enforce_for(app, "/user/edit/" + user["name"], user) is None
 
     def test_an_expired_password_does_not_block_the_api(self, app):
         user = make_user()
-        backdate(user["id"], days=120)
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
         assert enforce_for(app, "/api/3/action/status_show", user) is None
 
     def test_an_expired_password_does_not_block_logout(self, app):
         user = make_user()
-        backdate(user["id"], days=120)
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
         assert enforce_for(app, "/user/_logout", user) is None
 
     def test_an_expired_password_does_not_block_a_password_reset(self, app):
         user = make_user()
-        backdate(user["id"], days=120)
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
         assert enforce_for(app, "/user/reset", user) is None
 
     def test_a_valid_password_is_not_blocked(self, app):
@@ -339,7 +453,7 @@ class TestRotation:
 
     def test_changing_the_password_lifts_the_block(self, app):
         user = make_user()
-        backdate(user["id"], days=120)
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
         set_password(user, ALSO_STRONG)
         assert enforce_for(app, "/dataset", user) is None
 

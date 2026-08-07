@@ -39,7 +39,7 @@ A custom CKAN extension built specifically for the Scottish and Southern Electri
   Integrates with CKAN’s signal system to extend or modify behavior at key events during the dataset lifecycle.
 
 - **Password Policy:**  
-  Replaces CKAN’s 8-character password rule with a strength policy, blocks reuse of previous passwords, and forces rotation on a fixed window. See [Password policy](#password-policy).
+  Implements SSE’s IA-5 and IA-5.1 authentication standards: passphrase strength, no reuse of the last eight passwords, and rotation every 365 days (60 for sysadmins). See [Password policy](#password-policy).
 
 ## Installation
 
@@ -86,55 +86,99 @@ pip install -e .
 
 ## Password policy
 
-Implemented in `ckanext/sse/password_policy.py`, which documents the reasoning
-behind each hook. Three controls, all optional to configure and all on by
-default:
+Implements SSE’s *Standard for Identification and Authentication* IA-5 and
+IA-5.1 as far as a CKAN portal can. `ckanext/sse/password_policy.py` documents
+the reasoning behind each hook and maps every clause of the standard to the
+code that enforces it.
 
 **Strength.** CKAN’s only rule is “8 characters or longer”. This extension
 replaces its `user_password_validator`, so the policy applies everywhere a
 password is set — registration, the profile form, the forgotten-password
 reset, and `user_create`/`user_update` over the API. A password must:
 
-- be between 12 and 128 characters long;
-- contain an uppercase letter, a lowercase letter, a digit and a symbol
-  (anything that is not a letter or a digit, including a space, so passphrases
-  are not pushed towards punctuation);
-- not repeat the same character three or more times in a row;
-- not contain four or more sequential characters (`1234`, `abcd`, `9876`);
-- not be based on a common password — checked with common character
-  substitutions undone, so `P@ssw0rd!` is rejected along with `Password123`;
-- not contain the user’s username, full name or email address.
+- be at least 12 characters, or 15 for an administration account (a CKAN
+  sysadmin), up to a maximum of 128;
+- not repeat the same character more than four times in a row;
+- not contain ascending or descending sequences — three or more digits
+  (`123`, `4321`) or four or more letters (`abcd`);
+- not be a common, expected or compromised password — checked with common
+  character substitutions undone, so `P@ssw0rd!` is rejected along with
+  `Password123`;
+- not contain the user’s username, full name or email address;
+- not be a previous password with the number changed (`Welcome100` →
+  `Welcome101`).
+
+There is deliberately **no character-class requirement**. The standard prefers
+passphrases and recommends the “three random word” approach, and demanding an
+uppercase, a digit and a symbol works against both. Set
+`ckanext.sse.password.require_character_classes = true` for a deployment that
+wants one anyway.
 
 The rules are rendered next to every password field from
-`h.sse_password_policy_rules()`, so the hint cannot drift from what is
-enforced.
+`h.sse_password_policy_rules()`, which reads the same configuration the
+validator does, so the hint cannot drift from what is enforced. A sysadmin is
+shown the 15-character rule that will actually be applied to them.
+
+IA-5.1 a and b ask for a list of common, expected and compromised passwords
+that is “updated continually”, which a list baked into the source cannot be.
+Point `ckanext.sse.password.blocklist_file` at a file of one word per line — a
+compromised-password corpus, a dictionary, or both — and replacing it becomes a
+deployment step rather than a release. The file is re-read when its mtime
+changes, so no restart is needed. Entries are matched against the whole
+password rather than as substrings, so a corpus full of ordinary English words
+does not ban the passphrases the standard asks for.
 
 **Reuse.** Every password a user has held is recorded as a hash in the
-`user_password_history` table, and a new password is verified against the
-retained ones. The current password always counts, whatever the history length
-is set to. Rows past the configured length are deleted rather than kept.
+`user_password_history` table, and a new password is verified against the last
+eight. The current password always counts, whatever the history length is set
+to. Rows past the configured length are deleted rather than kept — they are old
+credentials, so retaining more than the check consults is a liability.
 
-**Rotation.** Once a password is older than the window, the user is redirected
-to the profile form on any page request until they change it. Logout and the
-forgotten-password reset stay reachable, so the block is not a trap. The action
-API is exempt: an API token is a separate credential with its own lifecycle,
-and answering a JSON call with a redirect to an HTML form breaks the client
-rather than protecting anything.
+**Rotation.** 365 days for ordinary users and 60 for sysadmins, per IA-5 f.
+Past the window the user is redirected to the profile form on any page request
+until they change their password. Logout and the forgotten-password reset stay
+reachable, so the block is not a trap. The action API is exempt: an API token is
+a separate credential with its own lifecycle, and answering a JSON call with a
+redirect to an HTML form breaks the client rather than protecting anything.
 
 Nothing needs migrating and nobody is locked out on the day this ships: the
 history table is seeded from each user’s live password hash on their first
 request, which starts a full window for them. Later changes made outside the
 actions — `ckan user setpass`, for instance — are picked up the same way.
 
+### Not enforced here
+
+Nothing in a CKAN extension can enforce these, and they are listed so the gap
+is visible rather than assumed covered:
+
+- passwords transmitted only under TLS (IA-5.1 c) — an ingress concern;
+- admin accounts not sharing a password with the holder’s AD account (f);
+- passphrases not reused outside SSE;
+- “not a single dictionary word” is only as good as the configured blocklist
+  file; the built-in list covers common passwords, not the dictionary.
+
+Related controls in the same standards that this extension does **not**
+implement, and which need their own work: AC-7 (lock an account for 30 minutes
+after six consecutive failed logons), AC-2.3 (disable accounts after 45 days
+without a logon), and AC-2.5/AC-11 (idle session timeout).
+
 ### Settings
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `ckanext.sse.password.min_length` | `12` | Minimum length. Floor of 8. |
+| `ckanext.sse.password.privileged_min_length` | `15` | Minimum for sysadmins. |
 | `ckanext.sse.password.max_length` | `128` | Maximum length. Caps the cost of hashing an oversized submission. |
-| `ckanext.sse.password.history_length` | `5` | Previous passwords that may not be reused. `0` checks only the current one. |
-| `ckanext.sse.password.expiry_days` | `90` | Rotation window. `0` disables the block entirely. |
+| `ckanext.sse.password.history_length` | `8` | Previous passwords that may not be reused. `0` checks only the current one. |
+| `ckanext.sse.password.expiry_days` | `365` | Rotation window. `0` disables the block entirely. |
+| `ckanext.sse.password.privileged_expiry_days` | `60` | Rotation window for sysadmins. |
 | `ckanext.sse.password.warn_days` | `14` | How far ahead of expiry to warn, once per browser session. `0` disables. |
+| `ckanext.sse.password.max_repeat` | `4` | Longest run of one repeated character still allowed. |
+| `ckanext.sse.password.max_digit_sequence` | `2` | Longest run of consecutive digits still allowed. |
+| `ckanext.sse.password.max_letter_sequence` | `3` | Longest run of consecutive letters still allowed. |
+| `ckanext.sse.password.increment_window` | `3` | How far either side of the number to look when detecting an incremented password. |
+| `ckanext.sse.password.require_character_classes` | `false` | Demand upper, lower, digit and symbol. Off, because the standard prefers passphrases. |
+| `ckanext.sse.password.blocklist_file` | – | Path to a maintained blocklist, one word per line. |
 | `ckanext.sse.password.extra_blocklist` | – | Extra words banned anywhere in a password, space or comma separated. |
 
 ### Note for tests

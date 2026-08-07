@@ -8,7 +8,7 @@ import logging
 from ckanext.sse import action, auth
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
-from ckanext.sse import password_policy
+from ckanext.sse import cli, login_throttle, password_policy, session_policy
 from .model import PackageAccessRequest, FormResponse, UserPasswordHistory
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
@@ -44,6 +44,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.ISignal, inherit=True)
     plugins.implements(plugins.IPermissionLabels)
     plugins.implements(plugins.IResourceController, inherit=True)
+    plugins.implements(plugins.IClick)
 
     # IPermissionLabels
     def get_dataset_labels(self, dataset_obj: model.Package) -> list[str]:
@@ -129,8 +130,20 @@ class SsePlugin(plugins.SingletonPlugin):
             *request_access_dashboard.get_blueprints(),
             admin.blueprint,
             data_reuse.blueprint,
-            # Routeless -- it carries the password rotation check, which has to
-            # run before every view.
+            # The last three are routeless: they carry the access-control
+            # checks that have to run before every view. Flask runs
+            # ``before_app_request`` handlers in blueprint registration order,
+            # and the order below is load-bearing:
+            #
+            # 1. the login lockout, which only looks at anonymous submissions
+            #    of the login form and has to run before the view checks the
+            #    credentials at all;
+            # 2. the idle timeout, so a session that has already expired is
+            #    sent to the login form rather than;
+            # 3. the password rotation block, which would otherwise send a
+            #    timed-out user to a form it is about to sign them out of.
+            login_throttle.blueprint,
+            session_policy.blueprint,
             password_policy.blueprint,
         ]
 
@@ -274,7 +287,18 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # ISignal
     def get_signal_subscriptions(self):
-        return signals.get_subscriptions()
+        subscriptions = {}
+        for source in (signals.get_subscriptions(),
+                       login_throttle.get_subscriptions()):
+            for signal, receivers in source.items():
+                # Merged rather than combined with ``update``, so two modules
+                # subscribing to the same signal keep both receivers.
+                subscriptions.setdefault(signal, []).extend(receivers)
+        return subscriptions
+
+    # IClick
+    def get_commands(self):
+        return cli.get_commands()
 
     # IResourceController
     def after_resource_create(self, context, data_dict):

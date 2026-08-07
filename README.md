@@ -41,6 +41,9 @@ A custom CKAN extension built specifically for the Scottish and Southern Electri
 - **Password Policy:**  
   Implements SSE’s IA-5 and IA-5.1 authentication standards: passphrase strength, no reuse of the last eight passwords, and rotation every 365 days (60 for sysadmins). See [Password policy](#password-policy).
 
+- **Access Control:**  
+  Implements SSE’s AC-7, AC-2.3 and AC-2.5/AC-11 standards: account lockout after six failed sign-ins, disablement of dormant accounts, and an idle session timeout. See [Access control](#access-control).
+
 ## Installation
 
 ### Prerequisites
@@ -157,10 +160,8 @@ is visible rather than assumed covered:
 - “not a single dictionary word” is only as good as the configured blocklist
   file; the built-in list covers common passwords, not the dictionary.
 
-Related controls in the same standards that this extension does **not**
-implement, and which need their own work: AC-7 (lock an account for 30 minutes
-after six consecutive failed logons), AC-2.3 (disable accounts after 45 days
-without a logon), and AC-2.5/AC-11 (idle session timeout).
+AC-7, AC-2.3 and AC-2.5/AC-11 are implemented separately — see
+[Access control](#access-control) below.
 
 ### Settings
 
@@ -187,6 +188,91 @@ without a logon), and AC-2.5/AC-11 (idle session timeout).
 policy rejects, so a bare `factories.User()` raises `ValidationError` while the
 plugin is enabled. Pass an explicit password — see
 `ckanext/sse/tests/test_password_policy.py`.
+
+## Access control
+
+Three further controls from SSE's *Standard for Access Control*, each in its
+own module and each documented there.
+
+### Account lockout (AC-7)
+
+Six consecutive failed sign-ins lock the account for 30 minutes. CKAN has no
+lockout of any kind on its own, so an account could be guessed at indefinitely.
+
+The mechanism follows `ckanext-security`: two Redis keys per account, a counter
+and a lock, each carrying its own expiry, so nothing has to be swept up
+afterwards and `INCR` stays atomic across workers. **Redis is required** —
+`ckan.redis.url` must point at a reachable instance. If it is unavailable the
+control fails *open*: the attempt is allowed and an error is logged, because a
+cache outage locking every user out of the portal is the worse failure.
+
+The lock is checked before CKAN's login view runs, so a correct password
+presented during the lockout does not shorten it. Attempts are counted from
+the `failed_login` signal rather than from `IAuthenticator.authenticate` — see
+the module docstring for why the obvious hook double-counts every failure —
+and only failures on the login endpoint count, so mistyping your current
+password on the profile form cannot lock you out.
+
+Counting is keyed on the account, resolved through the user table so a username
+and an email address share one budget. An attempt against a login matching no
+account is counted under what was typed, so spraying invented names gets no
+free ride either. The cost of account-keyed lockout is that a third party can
+lock a known account out by failing six times; that is inherent in the control,
+and the 30-minute expiry bounds it.
+
+Lockouts are recorded in the audit trail as `user_lockout` and, by default,
+emailed to the account holder — they are the one person who can tell an attack
+from their own typo.
+
+```
+ckan sse login-status <login>   # failure count and remaining lock time
+ckan sse unlock-login <login>   # the "or until released by an administrator" half
+```
+
+### Dormant account disablement (AC-2.3)
+
+Accounts idle for more than 45 days, and older than 30 days, are disabled.
+"Disabled" is CKAN's `deleted` state: the account cannot sign in and a sysadmin
+can restore it from the user edit form. Nothing is destroyed.
+
+Idle is measured from `user.last_active`, which CKAN stamps on every
+authenticated request rather than only at sign-in — an account making daily API
+calls is plainly in use. Accounts that have never been active fall back to their
+creation date, so an account created 60 days ago and never used is caught.
+
+Sysadmins and the site user are exempt by default; the former stands in for
+AC-2.3's "Admin Disablement" groups, because a sweep that disables every
+administrator during a quiet month leaves nobody able to undo it.
+
+There is no scheduler in a CKAN extension, so **this needs a cron entry or a
+Kubernetes CronJob** to satisfy "automatically disable":
+
+```
+ckan sse disable-inactive-users --dry-run   # list what would go
+ckan sse disable-inactive-users             # do it
+```
+
+### Idle session timeout (AC-2.5, AC-11)
+
+A signed-in session idle for 15 minutes is ended and the user must sign in
+again. AC-11 is written for a workstation lock, which a portal cannot do; ending
+the session is the compensating control. Anonymous browsing and the action API
+are unaffected. The activity stamp is only rewritten once a minute, so this does
+not add a session write to every request.
+
+### Settings
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `ckanext.sse.login.max_attempts` | `6` | Failures before the account locks. |
+| `ckanext.sse.login.lockout_minutes` | `30` | How long the lock lasts. |
+| `ckanext.sse.login.attempt_window_minutes` | `30` | How long a failure is remembered. |
+| `ckanext.sse.login.notify_lockout` | `true` | Email the account holder on lockout. |
+| `ckanext.sse.inactivity.idle_days` | `45` | Idle threshold for disablement. |
+| `ckanext.sse.inactivity.min_account_age_days` | `30` | Accounts younger than this are never disabled. |
+| `ckanext.sse.inactivity.exempt_sysadmins` | `true` | Leave sysadmins alone. |
+| `ckanext.sse.inactivity.exempt_users` | – | Further exempt account names, space separated. |
+| `ckanext.sse.session.idle_timeout_minutes` | `15` | Idle window before sign-out. `0` disables. |
 
 ## Usage
 
@@ -222,6 +308,17 @@ database:
 
 ```bash
 pytest --ckan-ini /path/to/your-test.ini ckanext/sse/tests
+```
+
+That ini also needs `ckan.redis.url` pointing at a reachable Redis, since the
+AC-7 lockout state lives there and `test-core.ini` leaves it at `localhost`:
+
+```ini
+[app:main]
+use = config:/srv/app/src/ckan/test-core.ini
+ckan.plugins = sse
+sqlalchemy.url = postgresql://<user>:<password>@db/ckan_test
+ckan.redis.url = redis://redis:6379/1
 ```
 
 ### Contributing

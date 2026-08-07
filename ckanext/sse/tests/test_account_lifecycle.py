@@ -18,11 +18,19 @@ PASSWORD = "quixotic wobble lantern"
 _serial = itertools.count()
 
 
-def make_user(created_days_ago=90, active_days_ago=None, **kwargs):
-    """A user with its creation and activity timestamps placed in the past."""
+def make_user(created_days_ago=90, active_days_ago=None, capacity="editor",
+              **kwargs):
+    """A dormant user, in scope for the sweep unless told otherwise.
+
+    ``capacity`` puts the account in an organisation, since the sweep only
+    looks at privileged accounts; pass ``None`` for a plain registered user.
+    """
     kwargs.setdefault("email", "lifecycle-%s@example.com" % next(_serial))
     user = factories.User(password=PASSWORD, **kwargs)
     user_obj = model.User.get(user["id"])
+
+    if capacity:
+        add_to_organization(user_obj, capacity)
 
     now = datetime.datetime.utcnow()
     user_obj.created = now - datetime.timedelta(days=created_days_ago)
@@ -32,6 +40,39 @@ def make_user(created_days_ago=90, active_days_ago=None, **kwargs):
     )
     Session.commit()
     return user_obj
+
+
+def add_to_organization(user, capacity="editor"):
+    """Put a user in an organisation without going through the action layer.
+
+    ``factories.Organization`` runs ``organization_create``, which dictizes
+    the new organisation through ``package_search`` -- and this extension's
+    ``package_search`` needs the scheming dataset schema, which is not loaded
+    under ``ckan.plugins = sse``. The rows are what the sweep queries anyway.
+    """
+    org = model.Group(name="org-%s" % next(_serial), title="Org",
+                      type="organization", is_organization=True)
+    org.state = model.State.ACTIVE
+    Session.add(org)
+    Session.flush()
+    Session.add(model.Member(group=org, table_id=user.id, table_name="user",
+                             capacity=capacity, state="active"))
+    Session.commit()
+    return org
+
+
+def add_as_collaborator(user, capacity="editor"):
+    """Make a user a collaborator on a dataset, again without the actions."""
+    package = model.Package(name="pkg-%s" % next(_serial), type="dataset")
+    package.state = model.State.ACTIVE
+    Session.add(package)
+    Session.flush()
+    Session.add(model.PackageMember(
+        package_id=package.id, user_id=user.id, capacity=capacity,
+        modified=datetime.datetime.utcnow(),
+    ))
+    Session.commit()
+    return package
 
 
 @pytest.mark.usefixtures("with_plugins", "sse_tables")
@@ -64,19 +105,19 @@ class TestEligibility:
         Session.commit()
         assert al.is_eligible(user) is False
 
-    def test_sysadmins_are_exempt_by_default(self):
-        """The equivalent of AC-2.3's "Admin Disablement" groups.
-
-        A sweep that disables every administrator during a quiet month
-        leaves nobody able to undo it.
-        """
+    def test_a_dormant_sysadmin_is_eligible(self):
+        """A sysadmin account is the most valuable one on the site."""
         user = make_user(created_days_ago=90, active_days_ago=90,
-                         sysadmin=True)
-        assert al.is_eligible(user) is False
+                         capacity=None, sysadmin=True)
+        assert al.is_eligible(user) is True
 
+    def test_sysadmins_can_be_exempted(self):
+        """The knob for an emergency account that is meant to sit unused."""
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity=None, sysadmin=True)
         with changed_config("ckanext.sse.inactivity.exempt_sysadmins",
-                            "false"):
-            assert al.is_eligible(user) is True
+                            "true"):
+            assert al.is_eligible(user) is False
 
     def test_named_accounts_can_be_exempted(self):
         user = make_user(created_days_ago=90, active_days_ago=90)
@@ -94,6 +135,75 @@ class TestEligibility:
         user = make_user(created_days_ago=90, active_days_ago=20)
         assert al.is_eligible(user) is False
         assert al.is_eligible(user, idle=10) is True
+
+
+@pytest.mark.usefixtures("with_plugins", "sse_tables")
+class TestScope:
+    """Only accounts carrying privilege are swept."""
+
+    def test_a_plain_registered_account_is_left_alone(self):
+        """Read access to public data is what anonymous visitors have."""
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity=None)
+        assert al.is_privileged(user) is False
+        assert al.is_eligible(user) is False
+
+    @pytest.mark.parametrize("capacity", ["admin", "editor", "member"])
+    def test_organisation_membership_puts_an_account_in_scope(self, capacity):
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity=capacity)
+        assert al.is_privileged(user) is True
+        assert al.is_eligible(user) is True
+
+    def test_a_sysadmin_is_in_scope_without_any_organisation(self):
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity=None, sysadmin=True)
+        assert al.is_privileged(user) is True
+
+    def test_a_dataset_collaborator_is_in_scope(self):
+        """An editor collaborator can change datasets without an org."""
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity=None)
+        add_as_collaborator(user)
+
+        assert al.is_privileged(user) is True
+        assert al.is_eligible(user) is True
+
+    def test_collaborators_can_be_left_out(self):
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity=None)
+        add_as_collaborator(user)
+
+        with changed_config(
+                "ckanext.sse.inactivity.include_collaborators", "false"):
+            assert al.is_privileged(user) is False
+
+    def test_which_capacities_count_is_configurable(self):
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity="member")
+        with changed_config("ckanext.sse.inactivity.capacities",
+                            "admin editor"):
+            assert al.is_privileged(user) is False
+
+    def test_the_scope_can_be_widened_to_every_account(self):
+        user = make_user(created_days_ago=90, active_days_ago=90,
+                         capacity=None)
+        assert al.is_eligible(user) is False
+        with changed_config("ckanext.sse.inactivity.privileged_only",
+                            "false"):
+            assert al.is_eligible(user) is True
+
+    def test_the_sweep_skips_unprivileged_accounts(self):
+        privileged = make_user(created_days_ago=90, active_days_ago=90,
+                               capacity="editor")
+        plain = make_user(created_days_ago=90, active_days_ago=90,
+                          capacity=None)
+
+        disabled = al.disable_inactive_users(dry_run=True)
+
+        names = [record["name"] for record in disabled]
+        assert privileged.name in names
+        assert plain.name not in names
 
 
 @pytest.mark.usefixtures("with_plugins", "sse_tables")

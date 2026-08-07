@@ -9,10 +9,32 @@ automatically once they are "eligible for disablement", which it defines as:
 
 The second clause is what stops a newly issued account being disabled before
 its holder has had a chance to use it, and the third is the exemption list for
-accounts that are supposed to sit idle. Here that is
-``ckanext.sse.inactivity.exempt_users`` plus, by default, sysadmins -- an
-automated sweep that disables every administrator during a quiet month would
-leave nobody able to undo it.
+accounts that are supposed to sit idle -- here
+``ckanext.sse.inactivity.exempt_users``, plus the site user, which is what
+CKAN's own internal calls authenticate as.
+
+Who the sweep applies to
+------------------------
+
+Only accounts that carry some privilege: sysadmins, members, editors and
+admins of an organisation, and -- because they can edit datasets too -- users
+made collaborators on a dataset.
+
+The control exists to shrink the set of standing privileged access paths. A
+registered account with no organisation and no collaboration has read access
+to public data, which is what the portal offers anonymously anyway, so
+disabling it after 45 days would churn ordinary data consumers without
+retiring any access. This portal's registered population is mostly exactly
+that. Organisation *members* are in scope even though the capacity is
+read-only, because membership carries access to that organisation's private
+datasets, which anonymous visitors do not have.
+
+Set ``ckanext.sse.inactivity.privileged_only`` to false to sweep every dormant
+account regardless.
+
+Sysadmins are in scope. If a sweep ever disables the last active sysadmin,
+``ckan sysadmin add <name>`` from a shell restores one -- the recovery path is
+outside the web session the sweep can affect.
 
 "Last logon" is read from ``user.last_active``, which CKAN stamps on every
 authenticated request rather than only at sign-in. That is the better reading
@@ -35,7 +57,10 @@ Configuration
 ===================================================== ====================
 ``ckanext.sse.inactivity.idle_days``                  45
 ``ckanext.sse.inactivity.min_account_age_days``       30
-``ckanext.sse.inactivity.exempt_sysadmins``           true
+``ckanext.sse.inactivity.privileged_only``            true
+``ckanext.sse.inactivity.capacities``                 admin editor member
+``ckanext.sse.inactivity.include_collaborators``      true
+``ckanext.sse.inactivity.exempt_sysadmins``           false
 ``ckanext.sse.inactivity.exempt_users``               names, space separated
 ===================================================== ====================
 """
@@ -97,9 +122,89 @@ def exempt_users():
 
 
 def exempt_sysadmins():
+    """Whether to leave sysadmins alone.
+
+    False by default: a sysadmin account is the most valuable one on the site,
+    so an idle one is exactly what the control is for. Where it has to be
+    turned on -- an emergency account that is supposed to sit unused -- prefer
+    naming it in ``exempt_users``, which is narrower.
+    """
     return toolkit.asbool(
-        toolkit.config.get("ckanext.sse.inactivity.exempt_sysadmins", True)
+        toolkit.config.get("ckanext.sse.inactivity.exempt_sysadmins", False)
     )
+
+
+def privileged_only():
+    """Whether the sweep is limited to accounts that carry privilege."""
+    return toolkit.asbool(
+        toolkit.config.get("ckanext.sse.inactivity.privileged_only", True)
+    )
+
+
+def include_collaborators():
+    """Whether a dataset collaboration counts as privilege.
+
+    It does by default. A collaborator with the editor capacity can change
+    datasets without belonging to any organisation, so leaving them out would
+    exempt the very access the control is meant to retire.
+    """
+    return toolkit.asbool(
+        toolkit.config.get("ckanext.sse.inactivity.include_collaborators",
+                           True)
+    )
+
+
+def capacities():
+    """Membership capacities that put an account in scope.
+
+    All three by default. ``member`` is read-only within the organisation, but
+    it still carries access to that organisation's private datasets, which is
+    access an anonymous visitor does not have.
+    """
+    configured = toolkit.config.get("ckanext.sse.inactivity.capacities",
+                                    "admin editor member")
+    return {
+        capacity.lower()
+        for capacity in re.split(r"[,\s]+", (configured or "").strip())
+        if capacity
+    }
+
+
+def privileged_user_ids():
+    """Every user id holding an organisation membership or collaboration.
+
+    One query per relationship rather than one per user: the sweep looks at
+    every account on the site, and asking the database about each in turn
+    would be a query per user for no benefit.
+    """
+    wanted = capacities()
+
+    members = (
+        Session.query(core_model.Member.table_id)
+        .join(core_model.Group,
+              core_model.Member.group_id == core_model.Group.id)
+        .filter(
+            core_model.Member.table_name == "user",
+            core_model.Member.state == core_model.State.ACTIVE,
+            core_model.Member.capacity.in_(wanted),
+            # Organisations only. This portal also uses ``user_group`` groups,
+            # membership of which grants read access to datasets shared with
+            # the group and no write access at all.
+            core_model.Group.is_organization.is_(True),
+            core_model.Group.state == core_model.State.ACTIVE,
+        )
+        .all()
+    )
+    ids = {row.table_id for row in members}
+
+    if include_collaborators():
+        collaborators = (
+            Session.query(core_model.PackageMember.user_id)
+            .filter(core_model.PackageMember.capacity.in_(wanted))
+            .all()
+        )
+        ids |= {row.user_id for row in collaborators}
+    return ids
 
 
 def last_activity(user):
@@ -107,7 +212,22 @@ def last_activity(user):
     return user.last_active or user.created
 
 
-def is_eligible(user, now=None, idle=None, min_age=None):
+def is_privileged(user, privileged_ids=None):
+    """Whether this account carries privilege worth retiring.
+
+    ``privileged_ids`` is the precomputed set from ``privileged_user_ids()``;
+    without it the set is built on the spot, which is fine for one account and
+    wasteful for a sweep.
+    """
+    if user.sysadmin:
+        return True
+    if privileged_ids is None:
+        privileged_ids = privileged_user_ids()
+    return user.id in privileged_ids
+
+
+def is_eligible(user, now=None, idle=None, min_age=None,
+                privileged_ids=None):
     """Whether AC-2.3's criteria are all met for this account."""
     now = now or datetime.datetime.utcnow()
     idle = idle if idle is not None else idle_days()
@@ -118,6 +238,8 @@ def is_eligible(user, now=None, idle=None, min_age=None):
     if user.name and user.name.lower() in exempt_users():
         return False
     if user.sysadmin and exempt_sysadmins():
+        return False
+    if privileged_only() and not is_privileged(user, privileged_ids):
         return False
     if not user.created or (now - user.created).days <= min_age:
         return False
@@ -137,9 +259,11 @@ def find_eligible(now=None, idle=None, min_age=None):
         .filter(core_model.User.state == core_model.State.ACTIVE)
         .all()
     )
+    privileged_ids = privileged_user_ids() if privileged_only() else None
     eligible = [
         user for user in users
-        if is_eligible(user, now=now, idle=idle, min_age=min_age)
+        if is_eligible(user, now=now, idle=idle, min_age=min_age,
+                       privileged_ids=privileged_ids)
     ]
     return sorted(eligible, key=lambda user: last_activity(user)
                   or datetime.datetime.min)
@@ -163,6 +287,9 @@ def disable_inactive_users(dry_run=False, now=None, idle=None, min_age=None):
             if user.last_active else None,
             "created": user.created.isoformat() if user.created else None,
             "idle_days": (now - seen).days if seen else None,
+            # Why the account was in scope at all, so the evidence AC-2.3 asks
+            # for shows the access that was retired, not just a name.
+            "sysadmin": bool(user.sysadmin),
         }
         disabled.append(record)
 

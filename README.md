@@ -240,9 +240,22 @@ authenticated request rather than only at sign-in — an account making daily AP
 calls is plainly in use. Accounts that have never been active fall back to their
 creation date, so an account created 60 days ago and never used is caught.
 
-Sysadmins and the site user are exempt by default; the former stands in for
-AC-2.3's "Admin Disablement" groups, because a sweep that disables every
-administrator during a quiet month leaves nobody able to undo it.
+**Only privileged accounts are swept:** sysadmins, members, editors and admins
+of an organisation, and users made collaborators on a dataset. The control
+exists to shrink the set of standing privileged access paths, and a registered
+account with no organisation and no collaboration has read access to public
+data — which is what the portal offers anonymously anyway. Disabling those after
+45 days would churn ordinary data consumers without retiring any access.
+Organisation *members* are in scope despite the capacity being read-only,
+because membership carries access to that organisation's private datasets. Set
+`ckanext.sse.inactivity.privileged_only = false` to sweep every dormant account
+regardless.
+
+Sysadmins are in scope, since an idle sysadmin account is the most valuable one
+on the site. If a sweep ever disables the last active sysadmin,
+`ckan sysadmin add <name>` from a shell restores one — the recovery path is
+outside the web session the sweep can affect. The site user is always exempt,
+and `ckanext.sse.inactivity.exempt_users` names any others.
 
 There is no scheduler in a CKAN extension, so **this needs a cron entry or a
 Kubernetes CronJob** to satisfy "automatically disable":
@@ -270,7 +283,10 @@ not add a session write to every request.
 | `ckanext.sse.login.notify_lockout` | `true` | Email the account holder on lockout. |
 | `ckanext.sse.inactivity.idle_days` | `45` | Idle threshold for disablement. |
 | `ckanext.sse.inactivity.min_account_age_days` | `30` | Accounts younger than this are never disabled. |
-| `ckanext.sse.inactivity.exempt_sysadmins` | `true` | Leave sysadmins alone. |
+| `ckanext.sse.inactivity.privileged_only` | `true` | Sweep only accounts carrying privilege. |
+| `ckanext.sse.inactivity.capacities` | `admin editor member` | Membership capacities that count as privilege. |
+| `ckanext.sse.inactivity.include_collaborators` | `true` | Count dataset collaborations as privilege. |
+| `ckanext.sse.inactivity.exempt_sysadmins` | `false` | Leave sysadmins alone. |
 | `ckanext.sse.inactivity.exempt_users` | – | Further exempt account names, space separated. |
 | `ckanext.sse.session.idle_timeout_minutes` | `15` | Idle window before sign-out. `0` disables. |
 

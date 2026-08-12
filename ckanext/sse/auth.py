@@ -88,3 +88,26 @@ def data_reuse_delete(context, data_dict):
     Only sysadmins can delete submissions.
     """
     return {'success': False}
+
+
+@tk.chained_auth_function
+def datastore_search_sql(next_auth, context, data_dict):
+    """
+    Restrict ``datastore_search_sql`` to authenticated users.
+
+    Chained because ``ckanext.datastore`` registers this name too. Checks
+    ``is_anonymous`` rather than truthiness: the action API sets
+    ``auth_user_obj`` to flask-login's ``AnonymousUser``, which is truthy.
+    """
+    user_obj = context.get('auth_user_obj')
+    anonymous = user_obj is None or getattr(user_obj, 'is_anonymous', False)
+
+    if anonymous and not context.get('user'):
+        return {
+            'success': False,
+            'msg': tk._(
+                'datastore_search_sql is available to authenticated users only'
+            ),
+        }
+
+    return next_auth(context, data_dict)

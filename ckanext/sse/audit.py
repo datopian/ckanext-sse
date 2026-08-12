@@ -59,11 +59,13 @@ environment, both measured rather than assumed:
 """
 
 import datetime
+import hashlib
 import ipaddress
 import json
 import logging
 import re
 import sys
+import time
 
 from flask import g, has_request_context
 from flask_login import user_logged_in
@@ -137,6 +139,10 @@ token api_token apikey api_key key secret client_secret
 # survive, which is the part that matters for an audit trail anyway.
 DEFAULT_MAX_PARAM_VALUE = 512
 DEFAULT_MAX_PARAMS = 4096
+
+# Tagging thresholds only -- nothing is rejected, alerting filters on ``flags``.
+DEFAULT_SLOW_QUERY_MS = 5000
+DEFAULT_LARGE_RESULT_ROWS = 10000
 
 
 def get_subscriptions():
@@ -594,6 +600,70 @@ def _client_ip(forwarded_for, remote_addr, cdn_client_ip=None):
     return chain[index]
 
 
+@toolkit.chained_action
+@toolkit.side_effect_free
+def datastore_search_sql(original_action, context, data_dict):
+    """Record each SQL query: who, how long, how much, and why it failed."""
+    started = time.monotonic()
+    try:
+        result = original_action(context, data_dict)
+    except Exception as error:
+        _log_sql_query(context, data_dict, started, error=error)
+        raise
+
+    _log_sql_query(context, data_dict, started, result=result)
+    return result
+
+
+def _log_sql_query(context, data_dict, started, result=None, error=None):
+    try:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        sql = data_dict.get("sql") or ""
+        records = (result or {}).get("records") or []
+        truncated = bool((result or {}).get("records_truncated"))
+
+        flags = []
+        if duration_ms >= _int_config(
+            "ckanext.sse.audit.slow_query_ms", DEFAULT_SLOW_QUERY_MS
+        ):
+            flags.append("slow")
+        if len(records) >= _int_config(
+            "ckanext.sse.audit.large_result_rows", DEFAULT_LARGE_RESULT_ROWS
+        ):
+            flags.append("large")
+        if truncated:
+            flags.append("truncated")
+
+        emit_audit_log(
+            action="datastore_sql_query",
+            status="failure" if error else "success",
+            user_name=context.get("user") or None,
+            user_id=_safe_attr(context.get("auth_user_obj"), "id"),
+            message="Datastore SQL query {} in {}ms, {} rows".format(
+                "failed" if error else "ran", duration_ms, len(records)
+            ),
+            token_id=(
+                getattr(g, TOKEN_ID_ATTR, None)
+                if has_request_context()
+                else None
+            ),
+            sql=_trim_value(sql),
+            sql_chars=len(sql),
+            # Groups repeats of one query without relying on trimmed text.
+            sql_fingerprint=hashlib.sha256(
+                " ".join(sql.split()).encode("utf-8")
+            ).hexdigest()[:16],
+            duration_ms=duration_ms,
+            row_count=len(records),
+            records_truncated=truncated,
+            flags=flags,
+            error_class=type(error).__name__ if error else None,
+            error_message=_trim_value(str(error)) if error else None,
+        )
+    except Exception:
+        log.exception("Failed to emit datastore SQL audit log")
+
+
 def emit_audit_log(action, status, message, user_name=None, user_id=None,
                    **extra):
     # A broken audit line must never break the request it describes. These
@@ -631,10 +701,21 @@ class SecurityAuditPlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IAuthenticator, inherit=True)
     plugins.implements(plugins.ISignal)
     plugins.implements(plugins.IApiToken, inherit=True)
+    plugins.implements(plugins.IActions)
 
     # ISignal
     def get_signal_subscriptions(self):
         return get_subscriptions()
+
+    # IActions
+    def get_actions(self):
+        # Chaining onto a missing action raises at startup, and datastore
+        # withholds this one unless sqlsearch is enabled.
+        if not toolkit.asbool(
+            toolkit.config.get("ckan.datastore.sqlsearch.enabled", False)
+        ):
+            return {}
+        return {"datastore_search_sql": datastore_search_sql}
 
     # IAuthenticator
     def logout(self):

@@ -221,7 +221,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IActions
     def get_actions(self):
-        return {
+        actions = {
             "package_create": action.package_create,
             "resource_activity_list": action.resource_activity_list,
             "package_collaborator_create": action.package_collaborator_create,
@@ -243,6 +243,15 @@ class SsePlugin(plugins.SingletonPlugin):
             "resources_stats": action.resources_stats
         }
 
+        # Chaining onto a missing action raises at startup, and datastore
+        # withholds this one unless sqlsearch is enabled.
+        if toolkit.asbool(
+            toolkit.config.get("ckan.datastore.sqlsearch.enabled", False)
+        ):
+            actions["datastore_search_sql"] = action.datastore_search_sql
+
+        return actions
+
     # IAuthFunctions
     def get_auth_functions(self):
         return {
@@ -251,6 +260,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "data_reuse_show": auth.data_reuse_show,
             "data_reuse_update": auth.data_reuse_update,
             "data_reuse_delete": auth.data_reuse_delete,
+            "datastore_search_sql": auth.datastore_search_sql,
         }
 
     # ISignal

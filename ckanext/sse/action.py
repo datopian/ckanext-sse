@@ -952,3 +952,24 @@ def resources_stats(context, data_dict):
         counts[key] = int(cnt)
 
     return counts
+
+
+@tk.chained_action
+@tk.side_effect_free
+def datastore_search_sql(original_action, context, data_dict):
+    """
+    Reject anonymous callers before the query reaches the database.
+
+    The auth function is not enough: ``check_access`` runs after
+    ``search_sql`` has already EXPLAINed the SQL, so anonymous callers could
+    probe for tables and columns through planner errors.
+    """
+    user_obj = context.get('auth_user_obj')
+    anonymous = user_obj is None or getattr(user_obj, 'is_anonymous', False)
+
+    if anonymous and not context.get('user'):
+        raise tk.NotAuthorized(
+            _('datastore_search_sql is available to authenticated users only')
+        )
+
+    return original_action(context, data_dict)

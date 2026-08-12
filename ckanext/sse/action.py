@@ -11,8 +11,7 @@ from ckanext.scheming.helpers import (
     scheming_field_by_name,
 )
 from sqlalchemy import func
-import string
-import random
+from ckanext.sse.password_policy import generate_password
 from .model import PackageAccessRequest, FormResponse
 from .schemas import package_request_access_schema, data_reuse_schema
 import os
@@ -461,11 +460,11 @@ def user_login(context, data_dict):
         )
 
         if not user:
-            password_length = 10
-            password = "".join(
-                random.choice(string.ascii_letters + string.digits)
-                for _ in range(password_length)
-            )
+            # A placeholder nobody is ever told: this account authenticates
+            # through the frontend's shared secret and the API token issued
+            # below, never through this password. It still has to satisfy the
+            # password policy, or ``user_create`` would reject it.
+            password = generate_password()
 
             user_name = "".join(
                 c.lower() if c.isalnum() else "_" for c in email.split("@")[0]

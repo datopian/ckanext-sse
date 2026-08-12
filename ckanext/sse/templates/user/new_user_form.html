@@ -1,0 +1,6 @@
+{% ckan_extends %}
+
+{% block required_core_fields %}
+  {{ super() }}
+  {% snippet "snippets/password_policy.html" %}
+{% endblock %}

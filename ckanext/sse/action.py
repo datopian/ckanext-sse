@@ -518,8 +518,27 @@ def _generate_token(context, user):
             if token["name"] == "frontend_token":
                 tk.get_action("api_token_revoke")(context, {"jti": token["id"]})
 
+        # Mint the frontend_token with an explicit lifetime so it expires even
+        # when the expire_api_token plugin is enabled. The plugin computes the
+        # token TTL as expires_in * unit (seconds); if we do not pass these it
+        # falls back to expire_api_token.default_lifetime. We keep it explicit
+        # and env-overridable so the lifetime is a deliberate policy value.
+        # The frontend (ssen-portal) re-mints this token on expiry, so a short
+        # lifetime here does not break the long-lived NextAuth session.
+        frontend_token_expires_in = int(
+            os.environ.get("CKANEXT__SSE__FRONTEND_TOKEN_EXPIRES_IN", 1)
+        )
+        frontend_token_unit = int(
+            os.environ.get("CKANEXT__SSE__FRONTEND_TOKEN_UNIT", 3600)
+        )
         frontend_token = tk.get_action("api_token_create")(
-            context, {"user": user["name"], "name": "frontend_token"}
+            context,
+            {
+                "user": user["name"],
+                "name": "frontend_token",
+                "expires_in": frontend_token_expires_in,
+                "unit": frontend_token_unit,
+            },
         )
 
         user["frontend_token"] = frontend_token.get("token")

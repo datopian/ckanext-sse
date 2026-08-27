@@ -48,10 +48,10 @@ def test_format_field_cannot_smuggle_a_bad_extension():
             {}, {"upload": upload(filename="evil.exe"), "format": "csv"})
 
 
-def test_extensionless_upload_falls_back_to_format():
-    context = {}
-    us._enforce_and_hash(context, {"upload": upload(filename="data"), "format": "CSV"})
-    assert context[us._STASH_KEY] == CSV_SHA
+def test_extensionless_upload_is_rejected_despite_format():
+    # the format field is user-controlled, so it must not satisfy the allowlist
+    with pytest.raises(ValidationError):
+        us._enforce_and_hash({}, {"upload": upload(filename="data"), "format": "CSV"})
 
 
 def test_oversize_upload_is_rejected():

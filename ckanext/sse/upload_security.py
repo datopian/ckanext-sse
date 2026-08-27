@@ -82,9 +82,12 @@ def _enforce_and_hash(context, resource):
     if stream is None:
         return  # link/URL resource, or an update that keeps the current file
 
-    ext = _upload_ext(upload) or (resource.get("format") or "").strip().lower()
+    # Derive the type from the uploaded filename only -- the format field is
+    # user-controlled, so trusting it (even as a fallback) lets an extensionless
+    # file named to a disallowed type slip past the allowlist.
+    ext = _upload_ext(upload)
     allowed = allowed_formats()
-    if ext not in allowed:
+    if not ext or ext not in allowed:
         raise toolkit.ValidationError({
             "upload": [
                 "File type '{}' is not allowed. Permitted types: {}.".format(
@@ -269,7 +272,7 @@ def _notify_on_success():
 
 def _notify_gchat(text):
     url = toolkit.config.get("ckanext.sse.checksum.gchat_webhook")
-    if not url:
+    if not url or not url.lower().startswith("https://"):
         return
     try:
         import requests

@@ -30,7 +30,7 @@ def backfill(dry_run):
 
 @checksums.command()
 @click.option("--notify", is_flag=True,
-              help="Post the result to the Google Chat webhook (mismatches always alert).")
+              help="Post the result to the Google Chat webhook (mismatches always go to the audit trail regardless).")
 def verify(notify):
     """Re-hash stored objects and compare to the recorded checksum (SI-7(1)).
 

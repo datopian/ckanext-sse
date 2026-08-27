@@ -279,10 +279,10 @@ class SsePlugin(plugins.SingletonPlugin):
 
     def after_resource_create(self, context, data_dict):
         upload_security.after_change(context, data_dict)
-        id = data_dict.get("id")
-        format = data_dict.get("format") or ""
-        if format.lower() == "geojson":
-            update_resource_extra(id, "is_geospatial", "True")
+        resource_id = data_dict.get("id")
+        resource_format = data_dict.get("format") or ""
+        if resource_format.lower() == "geojson":
+            update_resource_extra(resource_id, "is_geospatial", "True")
         return data_dict
 
     def after_resource_update(self, context, data_dict):

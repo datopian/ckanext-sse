@@ -45,6 +45,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IPermissionLabels)
     plugins.implements(plugins.IResourceController, inherit=True)
     plugins.implements(plugins.IClick)
+    plugins.implements(plugins.IApiToken, inherit=True)
 
     # IPermissionLabels
     def get_dataset_labels(self, dataset_obj: model.Package) -> list[str]:
@@ -311,3 +312,9 @@ class SsePlugin(plugins.SingletonPlugin):
     # IClick
     def get_commands(self):
         return cli.get_commands()
+
+    # IApiToken
+    def postprocess_api_token(self, data, jti, data_dict):
+        # Give only the frontend token a hard expiry; other token names are
+        # returned untouched.
+        return token_scope.set_token_expiry(data, jti, data_dict)

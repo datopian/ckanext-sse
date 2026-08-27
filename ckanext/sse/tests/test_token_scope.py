@@ -7,6 +7,7 @@ API-token JWT secret (``api_token.jwt.encode.secret`` /
 
 import pytest
 
+import ckan.lib.api_token as api_token
 import ckan.model as model
 import ckan.plugins.toolkit as toolkit
 from ckan.tests import factories
@@ -106,3 +107,45 @@ class TestEnforcement:
             response = ts.enforce_token_scope()
         assert response is not None
         assert response.status_code == 403
+
+
+@pytest.mark.usefixtures("with_plugins", "sse_tables")
+class TestExpiry:
+    """Only the frontend token is given a hard ``exp``; others never expire."""
+
+    def test_frontend_token_carries_an_expiry(self):
+        user = factories.User()
+        raw = make_token(user["name"], "frontend_token")
+        claims = api_token.decode(raw)
+        assert claims is not None and "exp" in claims
+        # exp is iat + the configured TTL (default 35 minutes). iat and exp are
+        # stamped microseconds apart and each truncated to a whole second, so
+        # allow a 1s slack rather than demanding exact equality.
+        ttl = ts._frontend_token_ttl_seconds()
+        assert ttl <= claims["exp"] - claims["iat"] <= ttl + 1
+
+    def test_smart_meter_token_never_expires(self):
+        user = factories.User()
+        raw = make_token(user["name"], "smart_meter_token")
+        claims = api_token.decode(raw)
+        assert claims is not None and "exp" not in claims
+
+    def test_a_personal_token_never_expires(self):
+        user = factories.User()
+        raw = make_token(user["name"], "my personal token")
+        claims = api_token.decode(raw)
+        assert claims is not None and "exp" not in claims
+
+    def test_the_ttl_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("CKANEXT__SSE__FRONTEND_TOKEN_TTL_MINUTES", "10")
+        user = factories.User()
+        raw = make_token(user["name"], "frontend_token")
+        claims = api_token.decode(raw)
+        assert 10 * 60 <= claims["exp"] - claims["iat"] <= 10 * 60 + 1
+
+    def test_a_zero_ttl_disables_the_expiry(self, monkeypatch):
+        monkeypatch.setenv("CKANEXT__SSE__FRONTEND_TOKEN_TTL_MINUTES", "0")
+        user = factories.User()
+        raw = make_token(user["name"], "frontend_token")
+        claims = api_token.decode(raw)
+        assert "exp" not in claims

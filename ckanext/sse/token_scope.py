@@ -43,8 +43,10 @@ a token is known to be scoped, anything we cannot positively allow is denied --
 an authorisation control fails closed.
 """
 
+import datetime
 import json
 import logging
+import os
 import re
 
 from flask import Blueprint, Response, has_request_context
@@ -93,6 +95,43 @@ ALLOWLISTS = {
     "frontend_token": FRONTEND_TOKEN_ACTIONS,
     "smart_meter_token": SMART_METER_TOKEN_ACTIONS,
 }
+
+# The name of the decoupled frontend's per-user token. Only this name is given a
+# hard expiry below.
+FRONTEND_TOKEN_NAME = "frontend_token"
+
+
+def _frontend_token_ttl_seconds():
+    """Hard lifetime for the frontend token, in seconds (0 disables it).
+
+    Kept just above the frontend's own rotation window
+    (``SESSION_TOKEN_ROTATION_MINUTES``, default 30) so a live session always
+    re-mints before this bites -- while a token that stops being rotated,
+    because the session went idle or the token leaked, dies on its own instead
+    of living forever. The frontend token is a CKAN JWT with no native expiry
+    otherwise; this is what makes it genuinely short-lived.
+    """
+    return toolkit.asint(
+        os.environ.get("CKANEXT__SSE__FRONTEND_TOKEN_TTL_MINUTES", 35)) * 60
+
+
+def set_token_expiry(data, jti, data_dict):
+    """Stamp an ``exp`` claim on the frontend token, and only that token.
+
+    An ``IApiToken.postprocess_api_token`` hook: it runs while a token is being
+    minted, keyed on the token *name* exactly like the scope allowlist. So the
+    smart_meter_token and users' personal tokens are left untouched and keep
+    CKAN's default non-expiring behaviour -- only ``frontend_token`` is bounded.
+    PyJWT enforces ``exp`` on decode, so an expired frontend token simply stops
+    authenticating.
+    """
+    if data_dict.get("name") != FRONTEND_TOKEN_NAME:
+        return data
+    ttl = _frontend_token_ttl_seconds()
+    if ttl > 0:
+        expire_at = datetime.datetime.utcnow() + datetime.timedelta(seconds=ttl)
+        data["exp"] = api_token.into_seconds(expire_at)
+    return data
 
 
 def _presented_token():

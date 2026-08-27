@@ -6,6 +6,7 @@ import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action, auth
+from ckanext.sse import cli, upload_security
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
 from .model import PackageAccessRequest, FormResponse
@@ -43,6 +44,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.ISignal, inherit=True)
     plugins.implements(plugins.IPermissionLabels)
     plugins.implements(plugins.IResourceController, inherit=True)
+    plugins.implements(plugins.IClick)
 
     # IPermissionLabels
     def get_dataset_labels(self, dataset_obj: model.Package) -> list[str]:
@@ -268,9 +270,25 @@ class SsePlugin(plugins.SingletonPlugin):
         return signals.get_subscriptions()
 
     # IResourceController
+    def before_resource_create(self, context, resource):
+        # SI-7: allowlist + checksum before the file reaches storage.
+        upload_security.before_create(context, resource)
+
+    def before_resource_update(self, context, current, resource):
+        upload_security.before_update(context, current, resource)
+
     def after_resource_create(self, context, data_dict):
+        upload_security.after_change(context, data_dict)
         id = data_dict.get("id")
-        format = data_dict.get("format")
+        format = data_dict.get("format") or ""
         if format.lower() == "geojson":
             update_resource_extra(id, "is_geospatial", "True")
         return data_dict
+
+    def after_resource_update(self, context, data_dict):
+        upload_security.after_change(context, data_dict)
+        return data_dict
+
+    # IClick
+    def get_commands(self):
+        return cli.get_commands()

@@ -609,7 +609,9 @@ def user_extras(context, data_dict):
 
     user_id = current_user.id
     user = model.User.get(user_id)
-    plugin_extras = user.plugin_extras
+    # A user who has never had extras set has ``plugin_extras`` of ``None``;
+    # ``None.get`` would 500 this action.
+    plugin_extras = user.plugin_extras or {}
     ssen_plugin_extras = plugin_extras.get("ssen")
 
     result = {}
@@ -617,7 +619,50 @@ def user_extras(context, data_dict):
     if ssen_plugin_extras and "is_verified_user" in ssen_plugin_extras:
         result["is_verified_user"] = asbool(ssen_plugin_extras["is_verified_user"])
 
+    # Whether a Smart Meter token already exists, so the UI can offer "Generate"
+    # or "Regenerate" without ever reading the token value back (it cannot be).
+    ctx = {"model": model, "user": user.name, "auth_user_obj": current_user}
+    tokens = tk.get_action("api_token_list")(ctx, {"user_id": user.name})
+    result["has_smart_meter_token"] = any(
+        t["name"] == SMART_METER_TOKEN_NAME for t in tokens)
+
     return result
+
+
+# The single named token the Smart Meter API accepts. Scoped by
+# ``ckanext.sse.token_scope`` to ``user_extras`` only, so even though it never
+# expires a leak grants nothing but the verification check.
+SMART_METER_TOKEN_NAME = "smart_meter_token"
+
+
+def smart_meter_token_create(context, data_dict):
+    """Generate (or regenerate) the caller's Smart Meter API token.
+
+    One named, non-expiring token per user. Regenerating revokes the previous
+    one first, so a user who suspects theirs is compromised retires it by
+    issuing a new one -- the revocation that stands in for expiry. Always
+    operates on the current user: a token is a personal credential, and nobody
+    mints anyone else's.
+
+    Returned once, in ``result.token``; it cannot be read back afterwards, the
+    same as any CKAN API token.
+    """
+    current_user = tk.current_user
+    if current_user is None or current_user.is_anonymous:
+        raise NotAuthorized(
+            _("You must be signed in to manage a Smart Meter token."))
+
+    user_name = current_user.name
+    ctx = {"model": model, "user": user_name, "auth_user_obj": current_user}
+
+    for token in tk.get_action("api_token_list")(ctx, {"user_id": user_name}):
+        if token["name"] == SMART_METER_TOKEN_NAME:
+            tk.get_action("api_token_revoke")(ctx, {"jti": token["id"]})
+
+    created = tk.get_action("api_token_create")(
+        ctx, {"user": user_name, "name": SMART_METER_TOKEN_NAME})
+
+    return {"token": created.get("token")}
 
 
 @logic.validate(data_reuse_schema)

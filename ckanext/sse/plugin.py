@@ -6,7 +6,7 @@ import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action, auth
-from ckanext.sse import cli, upload_security
+from ckanext.sse import cli, upload_security, session_policy, token_scope
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
 from .model import PackageAccessRequest, FormResponse
@@ -45,6 +45,7 @@ class SsePlugin(plugins.SingletonPlugin):
     plugins.implements(plugins.IPermissionLabels)
     plugins.implements(plugins.IResourceController, inherit=True)
     plugins.implements(plugins.IClick)
+    plugins.implements(plugins.IApiToken, inherit=True)
 
     # IPermissionLabels
     def get_dataset_labels(self, dataset_obj: model.Package) -> list[str]:
@@ -122,7 +123,18 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IBlueprint
     def get_blueprint(self):
-        return [dataset.blueprint, *request_access_dashboard.get_blueprints(), admin.blueprint, data_reuse.blueprint]
+        return [
+            dataset.blueprint,
+            *request_access_dashboard.get_blueprints(),
+            admin.blueprint,
+            data_reuse.blueprint,
+            # Routeless: enforces the AC-12 idle/absolute session caps before
+            # every view.
+            session_policy.blueprint,
+            # Least-privilege scoping for named API tokens; only acts on
+            # requests carrying a scoped token.
+            token_scope.blueprint,
+        ]
 
     # IConfigurer
     def update_config(self, config_):
@@ -236,6 +248,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
             "user_extras": action.user_extras,
+            "smart_meter_token_create": action.smart_meter_token_create,
             "data_reuse_create": action.data_reuse_create,
             "data_reuse_list": action.data_reuse_list,
             "data_reuse_show": action.data_reuse_show,
@@ -267,7 +280,14 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # ISignal
     def get_signal_subscriptions(self):
-        return signals.get_subscriptions()
+        subscriptions = {}
+        for source in (signals.get_subscriptions(),
+                       session_policy.get_subscriptions()):
+            for signal, receivers in source.items():
+                # Merged rather than combined with ``update``, so two modules
+                # subscribing to the same signal keep both receivers.
+                subscriptions.setdefault(signal, []).extend(receivers)
+        return subscriptions
 
     # IResourceController
     def before_resource_create(self, context, resource):
@@ -292,3 +312,9 @@ class SsePlugin(plugins.SingletonPlugin):
     # IClick
     def get_commands(self):
         return cli.get_commands()
+
+    # IApiToken
+    def postprocess_api_token(self, data, jti, data_dict):
+        # Give only the frontend token a hard expiry; other token names are
+        # returned untouched.
+        return token_scope.set_token_expiry(data, jti, data_dict)

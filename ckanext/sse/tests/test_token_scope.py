@@ -37,9 +37,15 @@ def action_context(app, raw_token, action):
 @pytest.mark.usefixtures("with_plugins", "sse_tables")
 class TestAllowlists:
     def test_frontend_allows_the_audited_actions(self):
-        for action in ("package_show", "resource_show", "user_extras",
-                       "datastore_search_sql", "data_reuse_create",
-                       "request_access_to_dataset", "follow_dataset",
+        for action in ("package_show", "package_list", "package_search",
+                       "resource_show", "user_extras", "user_show",
+                       # the reads that carry the token in the data explorer,
+                       # map and viz builders -- omitting these 403s those pages
+                       "datastore_search_sql", "datastore_search",
+                       "datastore_info",
+                       "group_show", "organization_show", "license_list",
+                       "data_reuse_create", "request_access_to_dataset",
+                       "follow_dataset",
                        # the frontend triggers Smart Meter token regeneration
                        "smart_meter_token_create"):
             assert action in ts.FRONTEND_TOKEN_ACTIONS
@@ -51,7 +57,10 @@ class TestAllowlists:
                        "datastore_create", "datastore_upsert",
                        "datastore_delete", "user_create", "user_update",
                        "user_patch", "organization_create",
-                       "package_collaborator_create"):
+                       "package_collaborator_create",
+                       # must never be able to mint another token
+                       "api_token_create", "api_token_revoke",
+                       "api_token_list"):
             assert action not in ts.FRONTEND_TOKEN_ACTIONS
 
     def test_smart_meter_is_user_extras_only(self):

@@ -59,12 +59,16 @@ log = logging.getLogger(__name__)
 
 _ = toolkit._
 
-# Actions the decoupled frontend calls with the user's token (audited). Reads
-# and the handful of writes the UI performs; nothing that creates or edits
-# datasets, resources, users or organisations.
+# Actions the decoupled frontend calls with the user's token. Every read the
+# portal performs plus the handful of writes the UI triggers; nothing that
+# creates, edits or deletes datasets, resources, users or organisations, and
+# nothing that mints a general-purpose token. Derived from the actual CKAN calls
+# in ssen-portal (grep of ``action/<name>`` + ``CkanRequest``) -- a name the
+# frontend calls with the token but that is missing here is default-denied and
+# breaks that page, so this has to stay in step with the frontend.
 FRONTEND_TOKEN_ACTIONS = frozenset(
     {
-        # writes the UI performs
+        # -- writes the UI performs --
         "data_reuse_create",
         "follow_dataset",
         "unfollow_dataset",
@@ -74,14 +78,39 @@ FRONTEND_TOKEN_ACTIONS = frozenset(
         # regenerate the user's own Smart Meter token (mints a *less*
         # privileged token; safe for the frontend to trigger)
         "smart_meter_token_create",
-        # reads
-        "user_extras",
-        "datastore_search_sql",
-        "dataset_followee_list",
-        "group_followee_list",
-        "resource_activity_list",
+        # -- package / resource reads --
         "package_show",
+        "package_list",
+        "package_search",
+        "package_activity_list",
+        "current_package_list_with_resources",
         "resource_show",
+        "resource_activity_list",
+        # -- datastore reads (data explorer, map & viz builders) --
+        "datastore_search",
+        "datastore_search_sql",
+        "datastore_info",
+        # -- group / organisation reads --
+        "group_show",
+        "group_list",
+        "group_activity_list",
+        "group_followee_list",
+        "organization_show",
+        "organization_list",
+        "organization_activity_list",
+        # -- user / misc reads --
+        "user_extras",
+        "user_show",
+        "dataset_followee_list",
+        "license_list",
+        "tag_list",
+        "data_reuse_list",
+        "data_reuse_show",
+        # -- showcase reads --
+        "ckanext_showcase_list",
+        "ckanext_showcase_show",
+        "ckanext_showcase_package_list",
+        "ckanext_package_showcase_list",
     }
 )
 

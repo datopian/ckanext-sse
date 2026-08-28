@@ -73,6 +73,20 @@ SESSION_KEY = "sse_last_seen"
 SESSION_START_KEY = "sse_session_start"
 
 
+def _persist_session():
+    """Write the session back after we have changed it.
+
+    CKAN runs Beaker with ``beaker.session.auto = false``, so a change to the
+    session is kept only if it is saved explicitly -- otherwise our activity
+    stamp is set in memory and thrown away at the end of the request, and the
+    idle timeout never has a stable ``last_seen`` to measure from. Guarded so it
+    is a harmless no-op on a session object that has no ``save`` (e.g. Flask's).
+    """
+    save = getattr(session, "save", None)
+    if callable(save):
+        save()
+
+
 def idle_timeout_seconds():
     """The idle window in seconds. 0 disables the timeout."""
     raw = toolkit.config.get("ckanext.sse.session.idle_timeout_minutes",
@@ -105,14 +119,24 @@ def get_subscriptions():
 
 
 def on_user_logged_in(sender, user=None, **kwargs):
-    """Stamp when the session began, so the absolute cap resets each sign-in.
+    """Stamp the session's start and first activity at sign-in.
 
-    A fresh stamp per login matters: Beaker may keep the same session across a
-    logout/login, and without this a new session would inherit the old start
-    and be capped early.
+    A fresh start stamp per login matters: Beaker may keep the same session
+    across a logout/login, and without this a new session would inherit the old
+    start and be capped early.
+
+    The activity stamp is seeded here too, not only in the before-request
+    handler, because the session write on the first request after login does not
+    reliably reach the cookie -- whereas this signal fires inside the login
+    request, whose own session save persists it. Without it the idle clock would
+    not start until the user's second navigation, leaving the post-login window
+    unprotected.
     """
     try:
-        session[SESSION_START_KEY] = int(time.time())
+        now = int(time.time())
+        session[SESSION_START_KEY] = now
+        session[SESSION_KEY] = now
+        _persist_session()
     except Exception:
         log.debug("Could not stamp the session start time")
 
@@ -157,6 +181,7 @@ def _enforce_absolute_timeout():
         # start the window now rather than signing everyone out on deploy.
         try:
             session[SESSION_START_KEY] = now
+            _persist_session()
         except Exception:
             log.debug("Could not stamp the session start time")
         return None
@@ -210,6 +235,7 @@ def _enforce_idle_timeout():
     if not last_seen or now - int(last_seen) > STAMP_INTERVAL_SECONDS:
         try:
             session[SESSION_KEY] = now
+            _persist_session()
         except Exception:
             log.debug("Could not stamp the session activity time")
     return None

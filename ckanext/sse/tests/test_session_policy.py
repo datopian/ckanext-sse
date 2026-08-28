@@ -140,6 +140,15 @@ class TestAbsoluteTimeout:
             sp.on_user_logged_in(None, user=model.User.get(user["id"]))
             assert session.get(sp.SESSION_START_KEY)
 
+    def test_login_also_seeds_the_activity_stamp(self, app, user):
+        # The idle clock must start at login, not at the second navigation:
+        # the write on the first post-login request does not reliably reach the
+        # Beaker cookie, so the login signal seeds it while the login request's
+        # own session save persists it.
+        with request_for(app, "/dataset"):
+            sp.on_user_logged_in(None, user=model.User.get(user["id"]))
+            assert session.get(sp.SESSION_KEY)
+
     def test_the_api_is_exempt(self, app, user):
         old = int(time.time()) - self._cap() - 1
         with request_for(app, "/api/3/action/status_show", user):

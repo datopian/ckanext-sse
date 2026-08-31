@@ -11,8 +11,7 @@ from ckanext.scheming.helpers import (
     scheming_field_by_name,
 )
 from sqlalchemy import func
-import string
-import random
+from ckanext.sse.password_policy import generate_password
 from .model import PackageAccessRequest, FormResponse
 from .schemas import package_request_access_schema, data_reuse_schema
 import os
@@ -461,11 +460,11 @@ def user_login(context, data_dict):
         )
 
         if not user:
-            password_length = 10
-            password = "".join(
-                random.choice(string.ascii_letters + string.digits)
-                for _ in range(password_length)
-            )
+            # A placeholder nobody is ever told: this account authenticates
+            # through the frontend's shared secret and the API token issued
+            # below, never through this password. It still has to satisfy the
+            # password policy, or ``user_create`` would reject it.
+            password = generate_password()
 
             user_name = "".join(
                 c.lower() if c.isalnum() else "_" for c in email.split("@")[0]
@@ -488,13 +487,29 @@ def user_login(context, data_dict):
                 session.add(user)
                 session.commit()
             elif user.state == "deleted":
+                # Surface *why* so the frontend can tailor its message and offer
+                # reactivation for an inactivity disablement rather than a
+                # generic "contact support".
+                ssen_extras = (user.plugin_extras or {}).get("ssen") or {}
+                disabled_reason = ssen_extras.get("disabled_reason")
+                support = os.environ.get(
+                    "CKANEXT__SSE__ADMINS_EMAIL", "support@datopian.com")
+                if disabled_reason == "inactivity":
+                    message = _(
+                        "Your account has been disabled due to inactivity. "
+                        "You can request reactivation, or contact %(support)s "
+                        "for assistance."
+                    ) % {"support": support}
+                else:
+                    message = _(
+                        "User account has been deleted. If you believe this "
+                        "was done in error, please contact support at "
+                        "%(support)s for assistance."
+                    ) % {"support": support}
                 error = {
                     "errors": {"auth": [_("Unable to authenticate user")]},
-                    "error_summary": {
-                        _("auth"): _(
-                            f"User account has been deleted. If you believe this was done in error, please contact support at {os.environ.get('CKANEXT__SSE__ADMINS_EMAIL', 'support@datopian.com')} for assistance."
-                        )
-                    },
+                    "error_summary": {_("auth"): message},
+                    "disabled_reason": disabled_reason,
                 }
 
                 log.error(error)
@@ -505,6 +520,43 @@ def user_login(context, data_dict):
     except Exception as e:
         log.error(e)
         return json.dumps({"error": True})
+
+
+def reactivation_request(context, data_dict):
+    """Record a request to reactivate an inactivity-disabled account.
+
+    Called by the frontend after the user authenticated with the IdP (so the
+    email is verified) but CKAN reported the account disabled. Authorised by
+    the shared client secret, like ``user_login``. Always returns the same
+    neutral result, so it cannot be used to probe which accounts exist or are
+    disabled. Recording only sets a flag; a sysadmin still approves.
+    """
+    frontend_secret = os.getenv("CKANEXT__SSE__CLIENT_AUTH_SECRET")
+    if not frontend_secret or data_dict.get("client_secret") != frontend_secret:
+        return {"errors": {"auth": [_("Client not authorized")]}}
+
+    neutral = {"requested": True}
+    email = (data_dict.get("email") or "").strip()
+    if not email:
+        return neutral
+
+    session = context["session"]
+    model = context["model"]
+    user = (
+        session.query(model.User)
+        .filter(func.lower(model.User.email) == func.lower(email))
+        .first()
+    )
+    if user is not None and user.state == "deleted":
+        extras = dict(user.plugin_extras or {})
+        ssen = dict(extras.get("ssen") or {})
+        if ssen.get("disabled_reason") == "inactivity":
+            ssen["reactivation_requested_at"] = \
+                datetime.datetime.utcnow().isoformat()
+            extras["ssen"] = ssen
+            user.plugin_extras = extras
+            session.commit()
+    return neutral
 
 
 def _generate_token(context, user):

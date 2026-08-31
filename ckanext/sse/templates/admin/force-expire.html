@@ -1,0 +1,50 @@
+{% extends "admin/base.html" %}
+
+{% block primary_content_inner %}
+  <h2>{{ _('Force a password change') }}</h2>
+  <p>
+    {% trans %}
+      The user will be required to set a new password the next time they sign
+      in. Use this when an account's password is known or suspected to be
+      compromised. Accounts that sign in with Azure AD have no local password
+      and are unaffected.
+    {% endtrans %}
+  </p>
+
+  <form method="POST" action="{% url_for 'ssen-admin.force_expire_password' %}">
+    {{ h.csrf_input() }}
+    <div class="row">
+      <div class="col">
+        <div class="form-group">
+          <input
+            id="force-expire-username" type="text" name="username"
+            placeholder="{{ _('Username') }}" value="" class="control-medium"
+            data-module="autocomplete"
+            data-module-source="/api/2/util/user/autocomplete?q=?"
+          >
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-danger"
+                  title="{{ _('Force password change') }}">
+            {{ _('Force password change') }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </form>
+{% endblock %}
+
+{% block secondary_content %}
+  <div class="module module-narrow module-shallow">
+    <h2 class="module-heading">
+      <i class="fa fa-info-circle"></i>
+      {{ _('Force password change') }}
+    </h2>
+    <div class="module-content">
+      {% trans %}
+        <p>Expires the account's current password so a new one must be set at
+        the next sign-in.</p>
+      {% endtrans %}
+    </div>
+  </div>
+{% endblock %}

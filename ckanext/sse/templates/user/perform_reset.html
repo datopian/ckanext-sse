@@ -1,0 +1,9 @@
+{% ckan_extends %}
+
+{# Above the form rather than after it: the reset page has no other content,
+   so a hint underneath the submit button is a hint nobody reads until they
+   have already been rejected. #}
+{% block form %}
+  {% snippet "snippets/password_policy.html" %}
+  {{ super() }}
+{% endblock %}

@@ -14,6 +14,11 @@ from ckan.tests import factories
 
 from ckanext.sse import token_scope as ts
 
+# factories.User defaults to a 10-character faker password, which the SSE
+# password policy (min 12) rejects. These tests only need a valid user, so
+# they pass a policy-compliant password.
+STRONG_PASSWORD = "Tr0mb0ne-Yak!79"
+
 
 def make_token(user_name, name):
     """A raw API token string for ``user_name`` with the given ``name``."""
@@ -77,19 +82,19 @@ class TestEnforcement:
 
     def test_an_ordinary_named_token_keeps_full_rights(self, app):
         """A personal token is not one of ours, so it is left alone."""
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "my personal token")
         with action_context(app, raw, "package_create"):
             assert ts.enforce_token_scope() is None
 
     def test_frontend_token_passes_an_allowlisted_action(self, app):
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "frontend_token")
         with action_context(app, raw, "package_show"):
             assert ts.enforce_token_scope() is None
 
     def test_frontend_token_is_blocked_from_a_write(self, app):
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "frontend_token")
         with action_context(app, raw, "package_create"):
             response = ts.enforce_token_scope()
@@ -97,7 +102,7 @@ class TestEnforcement:
         assert response.status_code == 403
 
     def test_smart_meter_token_allows_only_user_extras(self, app):
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "smart_meter_token")
         with action_context(app, raw, "user_extras"):
             assert ts.enforce_token_scope() is None
@@ -108,7 +113,7 @@ class TestEnforcement:
 
     def test_a_scoped_token_is_denied_off_the_action_api(self, app):
         """These tokens have no business on any endpoint but their actions."""
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "frontend_token")
         with app.flask_app.test_request_context(
                 "/dataset", headers={"Authorization": raw},
@@ -123,7 +128,7 @@ class TestExpiry:
     """Only the frontend token is given a hard ``exp``; others never expire."""
 
     def test_frontend_token_carries_an_expiry(self):
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "frontend_token")
         claims = api_token.decode(raw)
         assert claims is not None and "exp" in claims
@@ -134,27 +139,27 @@ class TestExpiry:
         assert ttl <= claims["exp"] - claims["iat"] <= ttl + 1
 
     def test_smart_meter_token_never_expires(self):
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "smart_meter_token")
         claims = api_token.decode(raw)
         assert claims is not None and "exp" not in claims
 
     def test_a_personal_token_never_expires(self):
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "my personal token")
         claims = api_token.decode(raw)
         assert claims is not None and "exp" not in claims
 
     def test_the_ttl_is_configurable(self, monkeypatch):
         monkeypatch.setenv("CKANEXT__SSE__FRONTEND_TOKEN_TTL_MINUTES", "10")
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "frontend_token")
         claims = api_token.decode(raw)
         assert 10 * 60 <= claims["exp"] - claims["iat"] <= 10 * 60 + 1
 
     def test_a_zero_ttl_disables_the_expiry(self, monkeypatch):
         monkeypatch.setenv("CKANEXT__SSE__FRONTEND_TOKEN_TTL_MINUTES", "0")
-        user = factories.User()
+        user = factories.User(password=STRONG_PASSWORD)
         raw = make_token(user["name"], "frontend_token")
         claims = api_token.decode(raw)
         assert "exp" not in claims

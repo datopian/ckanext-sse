@@ -7,9 +7,10 @@ import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action, auth
 from ckanext.sse import cli, upload_security, session_policy, token_scope
+from ckanext.sse import password_policy, login_throttle, account_lifecycle
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
-from .model import PackageAccessRequest, FormResponse
+from .model import PackageAccessRequest, FormResponse, UserPasswordHistory
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
     is_org_admin_by_package_id,
@@ -76,6 +77,8 @@ class SsePlugin(plugins.SingletonPlugin):
             PackageAccessRequest.__table__.create(meta.engine)
         if not FormResponse.__table__.exists(meta.engine):
             FormResponse.__table__.create(meta.engine)
+        if not UserPasswordHistory.__table__.exists(meta.engine):
+            UserPasswordHistory.__table__.create(meta.engine)
 
     # ITemplateHelpers
     def get_helpers(self):
@@ -83,6 +86,7 @@ class SsePlugin(plugins.SingletonPlugin):
                     'is_org_admin_by_package_id': is_org_admin_by_package_id,
         'is_admin_of_any_org': is_admin_of_any_org,
         'get_data_reuse_field_labels': get_data_reuse_field_labels,
+        'sse_password_policy_rules': password_policy.policy_rules,
         }
 
     # IPermissionLabels
@@ -128,12 +132,26 @@ class SsePlugin(plugins.SingletonPlugin):
             *request_access_dashboard.get_blueprints(),
             admin.blueprint,
             data_reuse.blueprint,
+            # Routeless: AC-7 login lockout. Runs first of the before-request
+            # handlers because it only inspects the anonymous login-form
+            # submission and has to reject a locked login before the view
+            # checks the credentials at all.
+            login_throttle.blueprint,
             # Routeless: enforces the AC-12 idle/absolute session caps before
-            # every view.
+            # every view. Runs before the password check so a timed-out user
+            # is sent to login rather than to a form it is about to sign them
+            # out of.
             session_policy.blueprint,
+            # Routeless: blocks a user with an expired password until they set
+            # a new one (IA-5 rotation).
+            password_policy.blueprint,
             # Least-privilege scoping for named API tokens; only acts on
             # requests carrying a scoped token.
             token_scope.blueprint,
+            # Routeless: re-disables an inactivity-disabled account that SSO
+            # silently reactivated, and shows a disabled user why on CKAN's
+            # login (AC-2.3).
+            account_lifecycle.blueprint,
         ]
 
     # IConfigurer
@@ -231,6 +249,9 @@ class SsePlugin(plugins.SingletonPlugin):
             "ib1_trust_framework_validator": ib1_trust_framework_validator,
             "ib1_sensitivity_class_validator": ib1_sensitivity_class_validator,
             "ib1_dataset_assurance_validator": ib1_dataset_assurance_validator,
+            # Shadows CKAN's own validator of the same name, which is how the
+            # password policy reaches every schema that sets a password.
+            "user_password_validator": password_policy.user_password_validator,
         }
 
     # IActions
@@ -244,6 +265,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_update": action.package_update,
             "package_show": action.package_show,
             "user_login": action.user_login,
+            "reactivation_request": action.reactivation_request,
             "package_search": action.package_search,
             "daily_report_activity": activity.dashboard_activity_list_for_all_users,
             "search_package_list": action.search_package_list,
@@ -255,7 +277,11 @@ class SsePlugin(plugins.SingletonPlugin):
             "data_reuse_update": action.data_reuse_update,
             "data_reuse_patch": action.data_reuse_patch,
             "data_reuse_delete": action.data_reuse_delete,
-            "resources_stats": action.resources_stats
+            "resources_stats": action.resources_stats,
+            # Chained: they only record when a password changed, so the
+            # rotation window has something to measure from.
+            "user_create": password_policy.user_create,
+            "user_update": password_policy.user_update,
         }
 
         # Chaining onto a missing action raises at startup, and datastore
@@ -282,6 +308,7 @@ class SsePlugin(plugins.SingletonPlugin):
     def get_signal_subscriptions(self):
         subscriptions = {}
         for source in (signals.get_subscriptions(),
+                       login_throttle.get_subscriptions(),
                        session_policy.get_subscriptions()):
             for signal, receivers in source.items():
                 # Merged rather than combined with ``update``, so two modules

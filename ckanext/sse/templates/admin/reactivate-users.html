@@ -1,0 +1,79 @@
+{% extends "admin/base.html" %}
+
+{% block primary_content_inner %}
+  {% if requested_users %}
+    <h2>{{ _('Reactivation requested') }}</h2>
+    <table class="table table-header table-hover table-bordered">
+      <thead>
+        <tr><th>{{ _('User') }}</th><th>&nbsp;</th></tr>
+      </thead>
+      <tbody>
+        {% for user in requested_users %}
+          <tr>
+            <td>{{ user }}</td>
+            <td>
+              <div class="btn-group pull-right">
+                <form method="POST" action="{% url_for 'ssen-admin.reactivate_user' %}">
+                  {{ h.csrf_input() }}
+                  <input type="hidden" value="{{ user }}" name="username" />
+                  <button type="submit" class="btn btn-primary btn-sm"
+                          title="{{ _('Reactivate account') }}">
+                    {{ _('Reactivate') }}
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <hr />
+  {% endif %}
+
+  <h2>{{ _('Accounts disabled for inactivity') }}</h2>
+
+  {% if disabled_users %}
+    <table class="table table-header table-hover table-bordered">
+      <thead>
+        <tr><th>{{ _('User') }}</th><th>&nbsp;</th></tr>
+      </thead>
+      <tbody>
+        {% for user in disabled_users %}
+          <tr>
+            <td>{{ user }}</td>
+            <td>
+              <div class="btn-group pull-right">
+                <form method="POST" action="{% url_for 'ssen-admin.reactivate_user' %}">
+                  {{ h.csrf_input() }}
+                  <input type="hidden" value="{{ user }}" name="username" />
+                  <button type="submit" class="btn btn-primary btn-sm"
+                          title="{{ _('Reactivate account') }}">
+                    {{ _('Reactivate') }}
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>{{ _('No accounts are currently disabled for inactivity.') }}</p>
+  {% endif %}
+{% endblock %}
+
+{% block secondary_content %}
+  <div class="module module-narrow module-shallow">
+    <h2 class="module-heading">
+      <i class="fa fa-info-circle"></i>
+      {{ _('Disabled accounts') }}
+    </h2>
+    <div class="module-content">
+      {% trans %}
+        <p>Accounts disabled by the inactivity sweep (AC-2.3). Reactivating an
+        account restores access, resets its activity clock, and clears its
+        disabled marker so it is not swept again immediately.</p>
+      {% endtrans %}
+    </div>
+  </div>
+{% endblock %}

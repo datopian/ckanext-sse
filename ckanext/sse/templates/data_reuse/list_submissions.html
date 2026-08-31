@@ -130,6 +130,7 @@
                   {% if h.check_access('data_reuse_update', {'id': submission.id}) and submission.state == 'pending' %}
                   <li>
                     <form method="post" action="{{ h.url_for('data_reuse.approve_data_reuse', submission_id=submission.id) }}">
+                      {{ h.csrf_input() }}
                       <button type="submit" class="dropdown-item text-success">
                         <i class="fa fa-check me-2"></i>{{ _('Approve') }}
                       </button>

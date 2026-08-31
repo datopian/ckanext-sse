@@ -163,6 +163,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
                 method="post"
                 class="d-inline"
               >
+                {{ h.csrf_input() }}
                 <input
                   type="hidden"
                   name="request_id"
@@ -211,6 +212,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
                         action="{{ url_for('access_requests.update_request_status') }}"
                         method="post"
                       >
+                        {{ h.csrf_input() }}
                         <input
                           type="hidden"
                           name="request_id"
@@ -312,6 +314,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
                 method="post"
                 class="d-inline"
               >
+                {{ h.csrf_input() }}
                 <input
                   type="hidden"
                   name="request_id"
@@ -388,6 +391,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
                         action="{{ url_for('access_requests.update_request_status') }}"
                         method="post"
                       >
+                        {{ h.csrf_input() }}
                         <input
                           type="hidden"
                           name="request_id"

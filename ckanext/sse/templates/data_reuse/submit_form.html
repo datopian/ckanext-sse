@@ -46,6 +46,7 @@
 
     <form method="post" action="{{ h.url_for('data_reuse.submit_data_reuse', package_id=package.id, reuse_type=reuse_type) }}"
       class="form-horizontal needs-validation" data-module="data-reuse-form" enctype="multipart/form-data" novalidate>
+      {{ h.csrf_input() }}
 
       <!-- Section 1: Tell us about yourself -->
       <div class="reuse-form-section">

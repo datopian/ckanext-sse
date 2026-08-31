@@ -22,6 +22,7 @@
         <div>
           {% if h.check_access('data_reuse_update', {'id': submission.id}) and submission.state == 'pending' %}
             <form method="post" action="{{ h.url_for('data_reuse.approve_data_reuse', submission_id=submission.id) }}" class="d-inline">
+              {{ h.csrf_input() }}
               <button type="submit" class="btn btn-success btn-sm">
                 <i class="fa fa-check"></i> {{ _('Approve') }}
               </button>
@@ -172,6 +173,7 @@
           {% if h.check_access('data_reuse_delete', {'id': submission.id}) %}
           <form method="post" action="{{ h.url_for('data_reuse.delete_data_reuse', submission_id=submission.id) }}"
             class="delete-form d-inline">
+            {{ h.csrf_input() }}
             <a href="{{ h.url_for('data_reuse.delete_data_reuse', submission_id=submission.id) }}" type="submit"
               class="btn btn-danger" data-module="confirm-action" data-module-content="{{ _('Are you sure?') }}">
               <i class="fa fa-trash"></i> {{ _('Delete') }}

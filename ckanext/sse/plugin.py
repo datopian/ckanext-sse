@@ -8,6 +8,7 @@ import logging
 from ckanext.sse import action, auth
 from ckanext.sse import cli, upload_security, session_policy, token_scope
 from ckanext.sse import password_policy, login_throttle, account_lifecycle
+from ckanext.sse import scim
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
 from .model import PackageAccessRequest, FormResponse, UserPasswordHistory
@@ -132,6 +133,8 @@ class SsePlugin(plugins.SingletonPlugin):
             *request_access_dashboard.get_blueprints(),
             admin.blueprint,
             data_reuse.blueprint,
+            # SCIM 2.0 endpoint for Entra user-deactivation sync (AC-2.13).
+            scim.blueprint,
             # Routeless: AC-7 login lockout. Runs first of the before-request
             # handlers because it only inspects the anonymous login-form
             # submission and has to reject a locked login before the view

@@ -141,6 +141,7 @@ from ckan.lib.navl.dictization_functions import Missing
 from ckan.model.meta import Session
 
 from ckanext.sse.model import UserPasswordHistory
+from ckanext.sse.entra import is_sso_user
 
 log = logging.getLogger(__name__)
 
@@ -1018,6 +1019,15 @@ def user_password_validator(key, data, errors, context):
         return
 
     user = _target_user(data, context)
+
+    # SSO accounts are governed by Entra; a local password would bypass it
+    # (MFA, conditional access, directory disablement). Refuse to set one.
+    if is_sso_user(user):
+        errors[("password",)].append(
+            _("This account signs in with Microsoft; a password cannot be set here.")
+        )
+        return
+
     identifiers = [
         data.get(("name",)),
         data.get(("email",)),
@@ -1120,6 +1130,27 @@ def user_create(up_func, context, data_dict):
     return result
 
 
+def _reject_sso_email_change(data_dict):
+    """SSO accounts are managed by Entra: block a local email change.
+
+    The password is refused by ``user_password_validator``; the email does not
+    pass through that validator, so it is guarded here. The SSO login flow
+    updates the email on the model directly (not via this action), so the
+    directory can still propagate a genuine change.
+    """
+    user = core_model.User.get(data_dict.get("id") or data_dict.get("name"))
+    if not is_sso_user(user):
+        return
+    new_email = data_dict.get("email")
+    if new_email and new_email.strip().lower() != (user.email or "").lower():
+        raise toolkit.ValidationError(
+            {"email": [toolkit._(
+                "This account signs in with Microsoft; its email is managed by "
+                "the directory and cannot be changed here."
+            )]}
+        )
+
+
 @toolkit.chained_action
 def user_update(up_func, context, data_dict):
     """Records a password change made through the API, forms or reset flow.
@@ -1128,6 +1159,7 @@ def user_update(up_func, context, data_dict):
     payload: a sysadmin importing an account supplies ``password_hash``
     directly, and CKAN's own reset flow rebuilds the whole user dict.
     """
+    _reject_sso_email_change(data_dict)
     before = _live_hash(data_dict.get("id"))
     result = up_func(context, data_dict)
     _record_if_changed(result.get("id") or data_dict.get("id"), before,

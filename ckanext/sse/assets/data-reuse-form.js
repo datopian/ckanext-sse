@@ -77,11 +77,10 @@ ckan.module('data-reuse-rejection-modal', function($) {
 
       // CKAN enforces CSRF on extension views. This form is built in JS so it
       // carries no server-rendered token; read the one CKAN renders in the
-      // page <head> meta (same source core's confirm-action module uses).
-      var csrfField = $('meta[name=csrf_field_name]').attr('content');
-      var csrfToken = $('meta[name="' + csrfField + '"]').attr('content');
+      // page <head> meta. CKAN hardcodes the field name to _csrf_token.
+      var csrfToken = $('meta[name="_csrf_token"]').attr('content');
       if (csrfToken) {
-        this.form.find('input[name="' + csrfField + '"]').val(csrfToken);
+        this.form.find('input[name="_csrf_token"]').val(csrfToken);
       }
 
       // Get submission ID and reject URL from the button element

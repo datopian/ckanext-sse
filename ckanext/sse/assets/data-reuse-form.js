@@ -74,7 +74,15 @@ ckan.module('data-reuse-rejection-modal', function($) {
       this.modal = $(this.options.modalSelector);
       this.form = $(this.options.modalSelector + " form");
       this.feedback = $(this.options.feedbackSelector);
-      
+
+      // CKAN enforces CSRF on extension views. This form is built in JS so it
+      // carries no server-rendered token; read the one CKAN renders in the
+      // page <head> meta. CKAN hardcodes the field name to _csrf_token.
+      var csrfToken = $('meta[name="_csrf_token"]').attr('content');
+      if (csrfToken) {
+        this.form.find('input[name="_csrf_token"]').val(csrfToken);
+      }
+
       // Get submission ID and reject URL from the button element
       this.submissionId = this.el.data("submission-id");
       this.rejectUrl = this.el.data("reject-url");
@@ -98,6 +106,7 @@ ckan.module('data-reuse-rejection-modal', function($) {
                   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <form id="rejectForm" method="post" action="/data_reuse/reject_data_reuse">
+                  <input type="hidden" name="_csrf_token" value="">
                   <div class="modal-body">
                     <div class="mb-3">
                       <label for="feedback" class="form-label">Feedback for the submitter</label>

@@ -9,8 +9,10 @@ client asked for.
 The behaviour we care about is deactivation: when Entra disables (or
 deprovisions) a user, it sends ``active: false`` (PATCH/PUT) or DELETE, and we
 disable every matching CKAN account -- see ``entra.deactivate``. Provisioning
-(POST) links or creates the account and stamps its Entra object id so later
-updates match on the immutable id rather than the mutable email.
+(POST) never creates a CKAN account: accounts come into being on SSO login.
+It only links an existing account and stamps its Entra object id, so later
+updates match on the immutable id rather than the mutable email. A POST for a
+user with no CKAN account is acknowledged but writes nothing.
 
 Only the subset Entra exercises is implemented; it is enough to drive the
 enterprise-application provisioning job end to end.
@@ -191,7 +193,14 @@ def get_user(user_id):
 
 @blueprint.route("/Users", methods=["POST"])
 def create_user():
-    """Provision: link (or create) the CKAN account and stamp its object id."""
+    """Provision: link an existing CKAN account and stamp its object id.
+
+    Never creates a CKAN account -- accounts are created on SSO login. A user
+    with no matching CKAN account is acknowledged with a stub response (so
+    Entra records success rather than erroring) but nothing is written; a
+    disable in the same request is still applied, which is a no-op when there
+    is no account.
+    """
     body = request.get_json(force=True, silent=True) or {}
     oid = body.get("externalId")
     email = _primary_email(body)
@@ -201,9 +210,9 @@ def create_user():
     user = users[0] if users else None
 
     if user is None:
-        user = _create_user(email, body.get("displayName"))
-        if user is None:
-            return _scim_error(400, "Cannot create user without an email")
+        if active is False:
+            entra.deactivate(oid, email)
+        return _scim_stub_response(oid, email, active)
 
     _stamp_oid(user, oid)
     if active is False:
@@ -321,15 +330,20 @@ def _stamp_oid(user, oid):
     model.Session.add(user)
 
 
-def _create_user(email, display_name):
-    if not email:
-        return None
-    name = re.sub(r"[^a-z0-9_-]", "_", email.split("@")[0].lower())
-    if not model.User.check_name_available(name):
-        import random
-        name = "%s_%d" % (name, random.randint(10, 99))
-    user = model.User(email=email, name=name, fullname=display_name or "")
-    user.activity_streams_email_notifications = False
-    model.Session.add(user)
-    model.Session.flush()
-    return user
+def _scim_stub_response(oid, email, active):
+    """Acknowledge a provision for a user with no CKAN account, without
+    creating one. Returns a minimal SCIM user (id keyed on the object id) so
+    Entra treats the operation as a success instead of an error.
+    """
+    body = {
+        "schemas": [USER_SCHEMA],
+        "id": oid or email,
+        "externalId": oid,
+        "userName": email,
+        "active": active is not False,
+        "emails": [{"value": email, "primary": True}] if email else [],
+        "meta": {"resourceType": "User"},
+    }
+    resp = make_response(jsonify(body))
+    resp.status_code = 201
+    return resp

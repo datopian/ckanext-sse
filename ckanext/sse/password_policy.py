@@ -1336,3 +1336,40 @@ blueprint = Blueprint("sse_password_policy", __name__)
 @blueprint.before_app_request
 def check_password_rotation():
     return enforce_rotation()
+
+
+def _reset_targets(ident):
+    """The user(s) a forgotten-password request resolves to, matched the way
+    core does: by email (case-insensitively) if it looks like one, else by name.
+    """
+    if "@" in ident:
+        from sqlalchemy import func
+        return (
+            Session.query(core_model.User)
+            .filter(func.lower(core_model.User.email) == ident.lower())
+            .all()
+        )
+    user = core_model.User.get(ident)
+    return [user] if user else []
+
+
+@blueprint.before_app_request
+def suppress_sso_password_reset():
+    """SSO accounts have no local password, so a reset is a dead end (the new
+    password would be refused by ``user_password_validator``) and sending the
+    email needlessly confirms the address exists. Short-circuit the request for
+    them and point at Microsoft sign-in.
+    """
+    req = toolkit.request
+    if req.endpoint != "user.request_reset" or req.method != "POST":
+        return
+    ident = (req.form.get("user") or "").strip()
+    if not ident:
+        return
+    targets = _reset_targets(ident)
+    if targets and all(is_sso_user(u) for u in targets):
+        toolkit.h.flash_error(toolkit._(
+            "This account signs in with Microsoft. Use “Sign in with "
+            "Microsoft” — a password reset is not available."
+        ))
+        return toolkit.h.redirect_to("user.login")

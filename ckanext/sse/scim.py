@@ -74,6 +74,14 @@ def _guard():
         return _scim_error(401, "Unauthorized")
 
 
+@blueprint.after_request
+def _scim_content_type(resp):
+    # Entra's SCIM client expects application/scim+json, not application/json.
+    if resp.mimetype == "application/json":
+        resp.headers["Content-Type"] = "application/scim+json"
+    return resp
+
+
 # --------------------------------------------------------------------------
 # Mapping
 # --------------------------------------------------------------------------

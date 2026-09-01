@@ -466,7 +466,7 @@ def hibp_check():
     """Whether to check candidates against Have I Been Pwned (opt-in).
 
     Off by default: it is an outbound call per password change and needs
-    network egress. The bundled/​configured word lists cover the offline case;
+    network egress. The bundled/ configured word lists cover the offline case;
     this adds the "updated continually" compromised-password corpus (IA-5.1 a)
     without shipping gigabytes of hashes.
     """

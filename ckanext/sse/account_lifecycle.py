@@ -535,6 +535,14 @@ def reactivate(name):
     if user is None:
         return None
 
+    # Only inactivity disablements come back this way. ``User.get`` returns
+    # soft-deleted users, so without this an account disabled for another reason
+    # -- a manual deletion, or an Entra-driven deactivation -- could be brought
+    # back through the dormancy admin form, bypassing the proper path.
+    if (user.state != core_model.State.DELETED
+            or _ssen_extras(user).get("disabled_reason") != "inactivity"):
+        return None
+
     user.state = core_model.State.ACTIVE
     user.last_active = datetime.datetime.utcnow()
 

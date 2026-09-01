@@ -52,15 +52,24 @@ def is_sso_user(user_obj):
     return entra_oid(user_obj) is not None
 
 
-def user_by_entra_oid(oid):
-    """The CKAN user carrying this Entra object id, or ``None``."""
+def users_by_entra_oid(oid):
+    """Every CKAN user carrying this Entra object id. There should be exactly
+    one, but a disable sweep must not miss a duplicate, so all rows are
+    returned.
+    """
     if not oid:
-        return None
+        return []
     return (
         model.Session.query(model.User)
         .filter(model.User.plugin_extras[NAMESPACE][OID_KEY].astext == oid)
-        .first()
+        .all()
     )
+
+
+def user_by_entra_oid(oid):
+    """The CKAN user carrying this Entra object id, or ``None``."""
+    users = users_by_entra_oid(oid)
+    return users[0] if users else None
 
 
 # --------------------------------------------------------------------------
@@ -73,8 +82,7 @@ def matching_users(oid, email=None):
     that predate the object-id link). De-duplicated.
     """
     found = {}
-    linked = user_by_entra_oid(oid)
-    if linked is not None:
+    for linked in users_by_entra_oid(oid):
         found[linked.id] = linked
     if email:
         rows = (
@@ -83,7 +91,12 @@ def matching_users(oid, email=None):
             .all()
         )
         for u in rows:
-            found[u.id] = u
+            # Only sweep an email match that is not firmly bound to a *different*
+            # Entra identity -- otherwise a shared/case-variant email could pull
+            # in someone else's account.
+            other = entra_oid(u)
+            if other is None or other == oid:
+                found[u.id] = u
     return list(found.values())
 
 

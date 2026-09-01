@@ -302,7 +302,16 @@ def _apply_active(active, oid, email):
 
 
 def _stamp_oid(user, oid):
-    if not oid or entra.entra_oid(user) == oid:
+    existing = entra.entra_oid(user)
+    if not oid or existing == oid:
+        return
+    if existing is not None:
+        # The account is already bound to a different Entra identity; never
+        # re-link it (that would let one identity take over another's account).
+        log.warning(
+            "SCIM: refusing to re-link user %s from oid %s to %s",
+            user.name, existing, oid,
+        )
         return
     extras = dict(user.plugin_extras or {})
     ns = dict(extras.get(entra.NAMESPACE) or {})

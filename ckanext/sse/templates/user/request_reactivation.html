@@ -6,33 +6,40 @@
   <section class="module">
     <div class="module-content">
       <h1 class="page-heading">{{ _('Request account reactivation') }}</h1>
-      <p>
-        {% trans %}
-          If your account was disabled for inactivity, enter your username or
-          email below to request reactivation. A site administrator reviews the
-          request; submitting this does not restore access on its own.
-        {% endtrans %}
-      </p>
-      <form method="post"
-            action="{{ h.url_for('sse_account_lifecycle.submit_reactivation_request') }}"
-            class="dataset-form">
-        {{ h.csrf_input() }}
-        <div class="form-group control-medium">
-          <label class="form-label" for="field-login">
-            {{ _('Username or email') }}
-          </label>
-          <div class="controls">
-            <input id="field-login" type="text" name="login"
-                   value="{{ login }}" class="form-control"
-                   autocomplete="off" required>
+      {% if login %}
+        <p>
+          {% trans %}
+            If this account was disabled for inactivity, requesting
+            reactivation flags it for a site administrator to review.
+            Submitting does not restore access on its own.
+          {% endtrans %}
+        </p>
+        <form method="post"
+              action="{{ h.url_for('sse_account_lifecycle.submit_reactivation_request') }}"
+              class="dataset-form">
+          {{ h.csrf_input() }}
+          <input type="hidden" name="login" value="{{ login }}">
+          <div class="form-group control-medium">
+            <label class="form-label">{{ _('Account') }}</label>
+            <div class="controls"><p class="form-control-static"><strong>{{ login }}</strong></p></div>
           </div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" type="submit">
-            {{ _('Request reactivation') }}
-          </button>
-        </div>
-      </form>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">
+              {{ _('Request reactivation') }}
+            </button>
+          </div>
+        </form>
+      {% else %}
+        <p>
+          {% trans %}
+            Sign in first. If your account has been disabled for inactivity,
+            you will be brought here to request reactivation.
+          {% endtrans %}
+        </p>
+        <a class="btn btn-primary" href="{{ h.url_for('user.login') }}">
+          {{ _('Go to sign in') }}
+        </a>
+      {% endif %}
     </div>
   </section>
 {% endblock %}

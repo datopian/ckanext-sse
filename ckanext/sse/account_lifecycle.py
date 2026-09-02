@@ -730,6 +730,11 @@ def record_reactivation_request(login):
         if (user.state != core_model.State.DELETED
                 or ssen.get("disabled_reason") != "inactivity"):
             return
+        # Single request per disablement: don't re-stamp or re-audit. The
+        # marker is cleared on reactivation, so a later dormancy can request
+        # again.
+        if ssen.get("reactivation_requested_at"):
+            return
         extras = dict(user.plugin_extras or {})
         marked = dict(extras.get("ssen") or {})
         marked["reactivation_requested_at"] = \

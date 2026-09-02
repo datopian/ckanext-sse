@@ -10,7 +10,7 @@
       <tbody>
         {% for user in requested_users %}
           <tr>
-            <td>{{ user }}</td>
+            <td><a href="{{ h.url_for('user.read', id=user) }}">{{ user }}</a></td>
             <td>
               <div class="btn-group pull-right">
                 <form method="POST" action="{% url_for 'ssen-admin.reactivate_user' %}">
@@ -40,7 +40,7 @@
       <tbody>
         {% for user in disabled_users %}
           <tr>
-            <td>{{ user }}</td>
+            <td><a href="{{ h.url_for('user.read', id=user) }}">{{ user }}</a></td>
             <td>
               <div class="btn-group pull-right">
                 <form method="POST" action="{% url_for 'ssen-admin.reactivate_user' %}">

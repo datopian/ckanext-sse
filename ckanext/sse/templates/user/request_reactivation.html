@@ -1,0 +1,38 @@
+{% extends "page.html" %}
+
+{% block subtitle %}{{ _('Request reactivation') }}{% endblock %}
+
+{% block primary_content %}
+  <section class="module">
+    <div class="module-content">
+      <h1 class="page-heading">{{ _('Request account reactivation') }}</h1>
+      <p>
+        {% trans %}
+          If your account was disabled for inactivity, enter your username or
+          email below to request reactivation. A site administrator reviews the
+          request; submitting this does not restore access on its own.
+        {% endtrans %}
+      </p>
+      <form method="post"
+            action="{{ h.url_for('sse_account_lifecycle.submit_reactivation_request') }}"
+            class="dataset-form">
+        {{ h.csrf_input() }}
+        <div class="form-group control-medium">
+          <label class="form-label" for="field-login">
+            {{ _('Username or email') }}
+          </label>
+          <div class="controls">
+            <input id="field-login" type="text" name="login"
+                   value="{{ login }}" class="form-control"
+                   autocomplete="off" required>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">
+            {{ _('Request reactivation') }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

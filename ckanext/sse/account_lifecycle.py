@@ -689,14 +689,94 @@ def _enforce_disabled_login_message():
         return None
 
     toolkit.h.flash_error(
-        _("This account has been disabled due to inactivity. Please request "
-          "reactivation or contact the site administrators.")
+        _("This account has been disabled due to inactivity. Request "
+          "reactivation below, or contact the site administrators.")
     )
+    # Send them to the request page (prefilled) rather than a dead-end form.
+    return toolkit.redirect_to(
+        "sse_account_lifecycle.request_reactivation_form", login=login)
+
+
+# --------------------------------------------------------------------------
+# Self-service reactivation request (#328 item G)
+# --------------------------------------------------------------------------
+#
+# A dormant account cannot sign in, so the request must be reachable while
+# anonymous. It only records a marker a sysadmin still approves, and always
+# answers the same way so it cannot be used to tell which accounts exist or
+# are disabled. ``/user/request-reactivation`` must be on the noanonaccess
+# allowlist or this 302s to login.
+
+
+def record_reactivation_request(login):
+    """Flag an inactivity-disabled account as having requested reactivation.
+
+    Matches on username or email (case-insensitive). A no-op for any other
+    account, and never reveals whether a match was found. Safe to call
+    anonymously; must not raise.
+    """
+    login = (login or "").strip()
+    if not login:
+        return
+    try:
+        user = (core_model.User.by_name(login)
+                or core_model.User.by_email(login))
+        # by_email can return a list on some CKAN versions.
+        if isinstance(user, list):
+            user = user[0] if user else None
+        if user is None:
+            return
+        ssen = (user.plugin_extras or {}).get("ssen") or {}
+        if (user.state != core_model.State.DELETED
+                or ssen.get("disabled_reason") != "inactivity"):
+            return
+        extras = dict(user.plugin_extras or {})
+        marked = dict(extras.get("ssen") or {})
+        marked["reactivation_requested_at"] = \
+            datetime.datetime.utcnow().isoformat()
+        extras["ssen"] = marked
+        user.plugin_extras = extras
+        Session.add(user)
+        Session.commit()
+        emit_audit_log(
+            action="reactivation_requested",
+            status="success",
+            user_name=user.name,
+            user_id=user.id,
+            message="Reactivation requested for {}".format(user.name),
+            reason="self_service",
+        )
+    except Exception:
+        log.exception("Recording a reactivation request failed")
+
+
+def request_reactivation_form():
+    """The self-service request page."""
+    return toolkit.render(
+        "user/request_reactivation.html",
+        extra_vars={"login": toolkit.request.args.get("login", "")},
+    )
+
+
+def submit_reactivation_request():
+    record_reactivation_request(toolkit.request.form.get("login"))
+    # Neutral: identical whether or not an account matched.
+    toolkit.h.flash_success(
+        _("If an account with that username or email is disabled for "
+          "inactivity, a reactivation request has been recorded for an "
+          "administrator to review."))
     return toolkit.redirect_to("user.login")
 
 
-# Routeless: hangs the guards off ``before_app_request``.
+# Routeless guards + the self-service request route.
 blueprint = Blueprint("sse_account_lifecycle", __name__)
+
+blueprint.add_url_rule(
+    "/user/request-reactivation", methods=["GET"],
+    view_func=request_reactivation_form)
+blueprint.add_url_rule(
+    "/user/request-reactivation", methods=["POST"],
+    view_func=submit_reactivation_request)
 
 
 @blueprint.before_app_request

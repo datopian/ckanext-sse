@@ -34,6 +34,22 @@ def backfill(dry_run):
             len(r["missing_object"]), ", ".join(r["missing_object"])), fg="yellow")
 
 
+@checksums.command("restamp-stale")
+@click.option("--dry-run", is_flag=True, help="List resources without re-stamping.")
+def restamp_stale(dry_run):
+    """Fix hashes an earlier backfill took from a superseded file."""
+    r = upload_security.restamp_stale(dry_run=dry_run)
+    verb = "would re-stamp" if dry_run else "re-stamped"
+    click.secho("{} {} resource(s): {}".format(
+        verb, len(r["restamped"]), ", ".join(r["restamped"])), fg="green")
+    if r["unexplained"]:
+        click.secho("{} mismatch(es) matching no stored object: {}".format(
+            len(r["unexplained"]), ", ".join(r["unexplained"])), fg="red")
+    if r["missing_object"]:
+        click.secho("{} resource(s) had no object in storage: {}".format(
+            len(r["missing_object"]), ", ".join(r["missing_object"])), fg="yellow")
+
+
 @checksums.command()
 @click.option("--notify", is_flag=True,
               help="Post the result to the Google Chat webhook (mismatches always go to the audit trail regardless).")

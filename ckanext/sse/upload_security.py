@@ -161,13 +161,34 @@ def _resource_prefix(resource_id):
     return "/".join(parts) + "/"
 
 
-def _object_key(s3, resource_id):
-    """The stored object key for a resource, found by prefix so the filename
-    (and any storage-path layout) need not be reconstructed."""
-    resp = s3.list_objects_v2(Bucket=_bucket(), Prefix=_resource_prefix(resource_id))
-    for obj in resp.get("Contents", []):
-        return obj["Key"]
-    return None
+def _object_key(s3, resource):
+    """The key of the resource's current file, or None if it is not stored.
+
+    A re-upload under a new filename leaves the previous object in place, so
+    the prefix can hold several files; only the one ``url`` names is current.
+    """
+    from botocore.exceptions import ClientError
+    from ckan.lib.munge import munge_filename
+
+    filename = munge_filename(os.path.basename(resource.url or ""))
+    if not filename:
+        return None
+    key = _resource_prefix(resource.id) + filename
+    try:
+        s3.head_object(Bucket=_bucket(), Key=key)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    return key
+
+
+def _other_keys(s3, resource, current_key):
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=_bucket(), Prefix=_resource_prefix(resource.id)):
+        for obj in page.get("Contents", []):
+            if obj["Key"] != current_key:
+                yield obj["Key"]
 
 
 def _hash_object(s3, key):
@@ -198,7 +219,7 @@ def backfill(dry_run=False):
         if _stored_hash(res):
             skipped += 1
             continue
-        key = _object_key(s3, res.id)
+        key = _object_key(s3, res)
         if not key:
             missing.append(res.id)
             continue
@@ -206,6 +227,35 @@ def backfill(dry_run=False):
             update_resource_extra(res.id, CHECKSUM_FIELD, _hash_object(s3, key))
         done.append(res.id)
     return {"stamped": done, "already": skipped, "missing_object": missing}
+
+
+def restamp_stale(dry_run=False):
+    """Re-stamp hashes that an earlier backfill took from a superseded file.
+
+    Only a stored hash that matches another object under the resource's prefix
+    is replaced; one that matches no object is left alone and reported, since
+    that is a real mismatch.
+    """
+    s3 = _s3()
+    restamped, unexplained, missing = [], [], []
+    for res in _upload_resources():
+        expected = _stored_hash(res)
+        if not expected:
+            continue
+        key = _object_key(s3, res)
+        if not key:
+            missing.append(res.id)
+            continue
+        actual = _hash_object(s3, key)
+        if actual == expected:
+            continue
+        if any(_hash_object(s3, k) == expected for k in _other_keys(s3, res, key)):
+            if not dry_run:
+                update_resource_extra(res.id, CHECKSUM_FIELD, actual)
+            restamped.append(res.id)
+        else:
+            unexplained.append(res.id)
+    return {"restamped": restamped, "unexplained": unexplained, "missing_object": missing}
 
 
 def verify(notify=False):
@@ -216,7 +266,7 @@ def verify(notify=False):
         expected = _stored_hash(res)
         if not expected:
             continue
-        key = _object_key(s3, res.id)
+        key = _object_key(s3, res)
         if not key:
             missing.append(res.id)
             continue

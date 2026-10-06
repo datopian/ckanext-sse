@@ -925,6 +925,11 @@ def data_reuse_update(context, data_dict):
     if not submission:
         raise tk.ObjectNotFound("Data reuse submission not found")
 
+    if "state" in data_dict and not _is_reuse_moderator(context):
+        raise tk.NotAuthorized(
+            _("Only sysadmins can change the state of a data reuse submission")
+        )
+
     # Remove any key fields that are not part of the form data
     form_data = {
         k: v

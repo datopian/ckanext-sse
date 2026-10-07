@@ -971,15 +971,13 @@ def data_reuse_patch(context, data_dict):
     """
     tk.check_access("data_reuse_update", context, data_dict)
 
+    if not _is_reuse_moderator(context):
+        raise tk.NotAuthorized(
+            _("Only reuse moderators can patch data reuse submissions")
+        )
+
     id = tk.get_or_bust(data_dict, "id")
     feedback = data_dict.get("feedback")
-
-    # Submitters may patch their own submission, but moderating one - approving
-    # or rejecting it - stays with sysadmins.
-    if "state" in data_dict and not _is_reuse_moderator(context):
-        raise tk.NotAuthorized(
-            _("Only sysadmins can change the state of a data reuse submission")
-        )
 
     submission = FormResponse.get(id, include_all=True)
     if not submission:

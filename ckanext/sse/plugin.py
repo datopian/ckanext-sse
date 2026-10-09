@@ -6,7 +6,7 @@ import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action, auth
-from ckanext.sse import cli, upload_security, session_policy, token_scope
+from ckanext.sse import cli, upload_security, upload_scan, session_policy, token_scope
 from ckanext.sse import password_policy, login_throttle, account_lifecycle
 from ckanext.sse import scim
 import ckan.authz
@@ -328,6 +328,7 @@ class SsePlugin(plugins.SingletonPlugin):
         upload_security.before_update(context, current, resource)
 
     def after_resource_create(self, context, data_dict):
+        upload_scan.after_change(context, data_dict)
         upload_security.after_change(context, data_dict)
         resource_id = data_dict.get("id")
         resource_format = data_dict.get("format") or ""
@@ -336,6 +337,7 @@ class SsePlugin(plugins.SingletonPlugin):
         return data_dict
 
     def after_resource_update(self, context, data_dict):
+        upload_scan.after_change(context, data_dict)
         upload_security.after_change(context, data_dict)
         return data_dict
 

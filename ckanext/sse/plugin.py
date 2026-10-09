@@ -323,9 +323,11 @@ class SsePlugin(plugins.SingletonPlugin):
     def before_resource_create(self, context, resource):
         # SI-7: allowlist + checksum before the file reaches storage.
         upload_security.before_create(context, resource)
+        upload_scan.before_change(context, resource)
 
     def before_resource_update(self, context, current, resource):
         upload_security.before_update(context, current, resource)
+        upload_scan.before_change(context, resource)
 
     def after_resource_create(self, context, data_dict):
         upload_scan.after_change(context, data_dict)

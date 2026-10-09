@@ -113,11 +113,36 @@ def queue(monkeypatch):
     return jobs
 
 
-def test_api_upload_is_marked_pending_and_queued(test_request_context, extras, queue):
+def test_api_upload_is_marked_pending_in_the_saved_dict(test_request_context):
+    resource = {"scan_status": "clean", "scanned_at": "earlier",
+                "scan_signature": "Old-Sig"}
+    with test_request_context("/api/3/action/resource_patch", method="POST"):
+        scan.before_change({us._STASH_KEY: DATA_SHA}, resource)
+    assert resource["scan_status"] == "pending"
+    assert "scanned_at" not in resource and "scan_signature" not in resource
+
+
+def test_synchronously_scanned_upload_is_marked_clean(test_request_context):
+    # the save only happens if the in-request scan passed
+    resource = {"scan_status": "infected", "scan_signature": "Old-Sig"}
+    with test_request_context("/dataset/foo/resource/new", method="POST"):
+        scan.before_change({us._STASH_KEY: DATA_SHA}, resource)
+    assert resource["scan_status"] == "clean" and resource["scanned_at"]
+    assert "scan_signature" not in resource
+
+
+def test_metadata_only_update_keeps_scan_fields(test_request_context):
+    resource = {"scan_status": "clean", "scanned_at": "earlier"}
+    with test_request_context("/api/3/action/resource_patch", method="POST"):
+        scan.before_change({}, resource)
+    assert resource == {"scan_status": "clean", "scanned_at": "earlier"}
+
+
+def test_api_upload_is_queued_without_a_separate_write(test_request_context, extras, queue):
     context = {us._STASH_KEY: DATA_SHA}
     with test_request_context("/api/3/action/resource_patch", method="POST"):
         scan.after_change(context, {"id": RID})
-    assert extras[RID]["scan_status"] == "pending"
+    assert extras == {}
     (fn, args, kw), = queue
     assert fn is scan.scan_resource and args == [RID, DATA_SHA]
     assert kw["rq_kwargs"]["timeout"] > scan.DEFAULT_TIMEOUT

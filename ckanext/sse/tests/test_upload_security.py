@@ -31,6 +31,8 @@ def upload(data=CSV, filename="data.csv"):
 def test_allowed_upload_is_hashed_and_rewound():
     context, resource = {}, {"upload": upload()}
     us._enforce_and_hash(context, resource)
+    # in the dict being saved, so it lands with the file in one write
+    assert resource[us.CHECKSUM_FIELD] == CSV_SHA
     assert context[us._STASH_KEY] == CSV_SHA
     # stream left at 0 so clamav + s3filestore read the whole file
     assert resource["upload"].stream.read() == CSV
@@ -77,20 +79,22 @@ def test_allowlist_is_configurable():
         assert context[us._STASH_KEY] == hashlib.sha256(b"hi").hexdigest()
 
 
-def test_persist_hash_writes_extra(monkeypatch):
-    calls = []
-    monkeypatch.setattr(us, "update_resource_extra",
-                        lambda rid, f, v: calls.append((rid, f, v)))
-    us._persist_hash({us._STASH_KEY: CSV_SHA}, {"id": "res-1"})
-    assert calls == [("res-1", us.CHECKSUM_FIELD, CSV_SHA)]
-
-
-def test_persist_hash_noop_without_stash(monkeypatch):
+def test_after_change_only_clears_the_stash(monkeypatch):
+    # No separate write after the action: DataPusher reads the resource as
+    # soon as the upload is saved and writes it back whole, so a later write
+    # was being undone.
     calls = []
     monkeypatch.setattr(us, "update_resource_extra",
                         lambda rid, f, v: calls.append(1))
-    us._persist_hash({}, {"id": "res-1"})
-    assert calls == []
+    context = {us._STASH_KEY: CSV_SHA}
+    us.after_change(context, {"id": "res-1"})
+    assert calls == [] and us._STASH_KEY not in context
+
+
+def test_metadata_only_update_keeps_the_recorded_checksum():
+    resource = {"url": "http://example.com/x.csv", us.CHECKSUM_FIELD: "previous"}
+    us._enforce_and_hash({}, resource)
+    assert resource[us.CHECKSUM_FIELD] == "previous"
 
 
 # -- object selection for backfill/verify -----------------------------------

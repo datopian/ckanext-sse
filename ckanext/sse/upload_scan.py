@@ -75,7 +75,27 @@ class UploadScanPlugin(plugins.SingletonPlugin):
         return None
 
 
-# -- enqueue ------------------------------------------------------------------
+# -- hooks ----------------------------------------------------------------------
+
+def before_change(context, resource):
+    """Set the scan fields of a new upload in the dict being saved.
+
+    Runs after ``upload_security``'s before-hook, whose stash marks an upload.
+    Written together with the file rather than afterwards, so a client that
+    reads the resource and writes it back (DataPusher) carries these values
+    instead of undoing them. A synchronous scan that fails aborts the save, so
+    ``clean`` is only ever stored for a file that passed.
+    """
+    if not context.get(us._STASH_KEY):
+        return
+    resource.pop(SIGNATURE_FIELD, None)
+    if deferred():
+        resource[STATUS_FIELD] = "pending"
+        resource.pop(SCANNED_AT_FIELD, None)
+    else:
+        resource[STATUS_FIELD] = "clean"
+        resource[SCANNED_AT_FIELD] = _now()
+
 
 def after_change(context, resource):
     """Queue a scan for an upload the request stored without scanning.
@@ -87,7 +107,6 @@ def after_change(context, resource):
     rid = resource.get("id")
     if not (digest and rid and deferred()):
         return
-    update_resource_extra(rid, STATUS_FIELD, "pending")
     from rq import Retry
     toolkit.enqueue_job(
         scan_resource, [rid, digest],

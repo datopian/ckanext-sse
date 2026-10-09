@@ -110,14 +110,14 @@ def _enforce_and_hash(context, resource):
     for chunk in iter(lambda: stream.read(_CHUNK), b""):
         h.update(chunk)
     stream.seek(0)  # rewind so clamav + s3filestore read from the start
-    context[_STASH_KEY] = h.hexdigest()
-
-
-def _persist_hash(context, resource):
-    digest = context.pop(_STASH_KEY, None)
-    rid = resource.get("id")
-    if digest and rid:
-        update_resource_extra(rid, CHECKSUM_FIELD, digest)
+    digest = h.hexdigest()
+    # Saved by the same package_update as the file. A separate write after the
+    # action loses to anything that read the resource before it and writes the
+    # whole dict back -- DataPusher does exactly that once notified of the
+    # upload, and restored the previous checksum.
+    resource[CHECKSUM_FIELD] = digest
+    # Tells the after-hooks that this request uploaded a file.
+    context[_STASH_KEY] = digest
 
 
 # -- IResourceController entry points ---------------------------------------
@@ -131,7 +131,7 @@ def before_update(context, current, resource):
 
 
 def after_change(context, resource):
-    _persist_hash(context, resource)
+    context.pop(_STASH_KEY, None)
 
 
 # -- object-storage access for the CLI --------------------------------------

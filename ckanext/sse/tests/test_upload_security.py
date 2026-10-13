@@ -198,3 +198,52 @@ def test_restamp_dry_run_writes_nothing(storage, monkeypatch):
                         lambda: [FakeResource("r1", "20260201_data.csv", OLD_SHA)])
     assert us.restamp_stale(dry_run=True)["restamped"] == ["r1"]
     assert writes == []
+
+
+# -- files uploaded straight to the bucket ------------------------------------------
+
+@pytest.fixture
+def bucket_deletes(monkeypatch):
+    deleted = []
+
+    class S3:
+        def delete_object(self, Bucket, Key):
+            deleted.append(Key)
+    monkeypatch.setattr(us, "_s3", lambda: S3())
+    monkeypatch.setattr(us, "_bucket", lambda: "bucket")
+    return deleted
+
+
+def direct(filename="data.csv", size=10):
+    return {"filename": filename, "size": size, "key": "res/" + filename}
+
+
+def test_direct_allowed_upload_passes_and_is_not_hashed(bucket_deletes):
+    context, resource = {us.DIRECT_KEY: direct()}, {}
+    us._enforce_and_hash(context, resource)
+    assert us.CHECKSUM_FIELD not in resource and us._STASH_KEY not in context
+    assert bucket_deletes == []
+
+
+def test_direct_disallowed_type_is_rejected_and_deleted(bucket_deletes):
+    with pytest.raises(ValidationError):
+        us._enforce_and_hash({us.DIRECT_KEY: direct("evil.exe")}, {})
+    assert bucket_deletes == ["res/evil.exe"]
+
+
+def test_direct_extensionless_file_is_rejected(bucket_deletes):
+    with pytest.raises(ValidationError):
+        us._enforce_and_hash({us.DIRECT_KEY: direct("data")}, {})
+
+
+def test_direct_oversize_is_rejected_and_deleted(bucket_deletes):
+    with changed_config("ckan.max_resource_size", "1"):
+        with pytest.raises(ValidationError):
+            us._enforce_and_hash({us.DIRECT_KEY: direct(size=2 * 1024 * 1024)}, {})
+    assert bucket_deletes == ["res/data.csv"]
+
+
+def test_direct_file_at_the_limit_passes(bucket_deletes):
+    with changed_config("ckan.max_resource_size", "1"):
+        us._enforce_and_hash({us.DIRECT_KEY: direct(size=1024 * 1024)}, {})
+    assert bucket_deletes == []

@@ -166,10 +166,13 @@ def test_web_upload_queues_nothing(test_request_context, extras, queue):
 
 class FakeS3:
     def __init__(self, data=DATA):
-        self.data, self.deleted = data, []
+        self.data, self.deleted, self.etag = data, [], '"etag-1"'
 
     def get_object(self, Bucket, Key):
-        return {"Body": io.BytesIO(self.data)}
+        return {"Body": io.BytesIO(self.data), "ETag": self.etag}
+
+    def head_object(self, Bucket, Key):
+        return {"ETag": self.etag}
 
     def delete_object(self, Bucket, Key):
         self.deleted.append(Key)
@@ -264,3 +267,73 @@ def test_clamd_error_raises_for_retry(stored, extras):
     with pytest.raises(RuntimeError):
         scan.scan_resource(RID, DATA_SHA)
     assert extras == {} and stored.s3.deleted == []
+
+
+# -- direct uploads (file went straight to the bucket) -----------------------------
+
+DIRECT = {"resource_id": RID, "filename": "routes.zip",
+          "key": "resources/res-1/routes.zip", "size": len(DATA), "etag": '"etag-1"'}
+
+
+@pytest.mark.parametrize("path", [
+    "/dataset/foo/resource/new",
+    "/dataset/foo/resource/abc/edit",
+    "/api/3/action/package_update",
+])
+def test_direct_upload_is_deferred_whatever_the_path(test_request_context, path):
+    # no request body reaches CKAN, so a synchronous scan is impossible
+    with test_request_context(path, method="POST"):
+        assert scan.deferred({scan.DIRECT_KEY: DIRECT})
+
+
+def test_direct_upload_is_marked_pending_even_on_the_web_form(test_request_context):
+    resource = {"scan_status": "clean", "scanned_at": "earlier"}
+    with test_request_context("/dataset/foo/resource/new", method="POST"):
+        scan.before_change({scan.DIRECT_KEY: DIRECT}, resource)
+    assert resource["scan_status"] == "pending"
+    assert "scanned_at" not in resource
+
+
+def test_direct_upload_is_queued_by_etag(test_request_context, extras, queue):
+    with test_request_context("/dataset/foo/resource/new", method="POST"):
+        scan.after_change({scan.DIRECT_KEY: DIRECT}, {"id": RID})
+    (fn, args, kw), = queue
+    assert fn is scan.scan_resource and args == [RID, None, '"etag-1"']
+
+
+def test_clean_direct_upload_records_its_checksum(stored, extras):
+    stored.res.extras = {}
+    assert scan.scan_resource(RID, None, '"etag-1"') == "clean"
+    assert stored.clamd.read == DATA
+    assert extras[RID][us.CHECKSUM_FIELD] == DATA_SHA
+    assert extras[RID]["scan_status"] == "clean"
+
+
+def test_infected_direct_upload_is_deleted(stored, extras):
+    stored.res.extras = {}
+    stored.clamd = FakeClamd("FOUND", "Eicar-Signature")
+    assert scan.scan_resource(RID, None, '"etag-1"') == "infected"
+    assert stored.s3.deleted == ["resources/res-1/routes.zip"]
+    assert extras[RID]["scan_status"] == "infected"
+    assert us.CHECKSUM_FIELD not in extras[RID]
+
+
+def test_direct_upload_replaced_before_the_scan_is_skipped(stored, extras):
+    stored.res.extras = {}
+    stored.s3.etag = '"etag-2"'
+    assert scan.scan_resource(RID, None, '"etag-1"') == "superseded"
+    assert stored.clamd.read == b"" and extras == {}
+
+
+def test_direct_upload_replaced_mid_scan_takes_no_action(stored, extras):
+    stored.res.extras = {}
+    stored.clamd = FakeClamd("FOUND", "Eicar-Signature")
+    original = stored.clamd.instream
+
+    def replace_then_scan(buff):
+        result = original(buff)
+        stored.s3.etag = '"etag-2"'
+        return result
+    stored.clamd.instream = replace_then_scan
+    assert scan.scan_resource(RID, None, '"etag-1"') == "superseded"
+    assert stored.s3.deleted == [] and extras == {}

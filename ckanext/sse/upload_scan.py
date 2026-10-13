@@ -13,6 +13,13 @@ keeps the synchronous ckanext-clamav scan before storage.
 On detection the job deletes the stored object and any datastore table built
 from it, marks the resource, and alerts; follow-up with the publisher is
 manual. Between upload and verdict the new file is served unscanned.
+
+Files sent straight to the bucket (ckanext-s3filestore-with-ui) never pass
+through CKAN, so neither scan can see them as an upload. That plugin leaves a
+note in the action context (``DIRECT_KEY``); such files are always scanned by
+the background job, whatever the request path, because there is no request body
+to scan synchronously. The job streams the object from the bucket to clamd and
+records its SHA-256 on the way, since nothing hashed it at upload time.
 """
 
 import datetime
@@ -32,6 +39,8 @@ STATUS_FIELD = "scan_status"
 SCANNED_AT_FIELD = "scanned_at"
 SIGNATURE_FIELD = "scan_signature"
 
+DIRECT_KEY = us.DIRECT_KEY
+
 DEFAULT_ASYNC_ACTIONS = "resource_create resource_update resource_patch"
 DEFAULT_TIMEOUT = 900
 
@@ -47,8 +56,10 @@ def _timeout():
         toolkit.config.get("ckanext.sse.upload_scan.timeout", DEFAULT_TIMEOUT))
 
 
-def deferred():
+def deferred(context=None):
     """Whether the current request's upload is scanned in the background."""
+    if context and context.get(DIRECT_KEY):
+        return True
     from flask import has_request_context, request
     if not has_request_context():
         return False
@@ -80,16 +91,17 @@ class UploadScanPlugin(plugins.SingletonPlugin):
 def before_change(context, resource):
     """Set the scan fields of a new upload in the dict being saved.
 
-    Runs after ``upload_security``'s before-hook, whose stash marks an upload.
+    Runs after ``upload_security``'s before-hook, whose stash marks an upload
+    (or after s3filestore's, for a file that went straight to the bucket).
     Written together with the file rather than afterwards, so a client that
     reads the resource and writes it back (DataPusher) carries these values
     instead of undoing them. A synchronous scan that fails aborts the save, so
     ``clean`` is only ever stored for a file that passed.
     """
-    if not context.get(us._STASH_KEY):
+    if not (context.get(us._STASH_KEY) or context.get(DIRECT_KEY)):
         return
     resource.pop(SIGNATURE_FIELD, None)
-    if deferred():
+    if deferred(context):
         resource[STATUS_FIELD] = "pending"
         resource.pop(SCANNED_AT_FIELD, None)
     else:
@@ -104,12 +116,16 @@ def after_change(context, resource):
     that tells us a file was uploaded.
     """
     digest = context.get(us._STASH_KEY)
+    direct = context.get(DIRECT_KEY)
     rid = resource.get("id")
-    if not (digest and rid and deferred()):
+    if not (rid and (digest or direct) and deferred(context)):
         return
+    # A direct upload has no digest yet; its ETag tells the job which bytes
+    # it was queued for.
+    args = [rid, None, direct.get("etag")] if direct else [rid, digest]
     from rq import Retry
     toolkit.enqueue_job(
-        scan_resource, [rid, digest],
+        scan_resource, args,
         title="Malware scan of resource {}".format(rid),
         rq_kwargs={"timeout": _timeout() + 60, "retry": Retry(max=2)},
     )
@@ -146,12 +162,17 @@ def _clamd():
     )
 
 
-def scan_resource(resource_id, sha256):
-    """Scan the stored file of ``resource_id`` that was uploaded as ``sha256``."""
+def scan_resource(resource_id, sha256, etag=None):
+    """Scan the stored file of ``resource_id``.
+
+    ``sha256`` identifies an upload that went through CKAN. A direct upload
+    has none, so ``etag`` identifies it instead and the digest is recorded
+    after the scan.
+    """
     res = model.Resource.get(resource_id)
     if not res or res.state != "active":
         return "gone"
-    if us._stored_hash(res) != sha256:
+    if etag is None and us._stored_hash(res) != sha256:
         # A newer upload replaced this file and queued its own scan.
         return "superseded"
 
@@ -161,15 +182,24 @@ def scan_resource(resource_id, sha256):
         _audit("missing_object", "Uploaded file to scan is not in storage", res)
         return "missing"
 
-    reader = _HashingReader(s3.get_object(Bucket=us._bucket(), Key=key)["Body"])
+    obj = s3.get_object(Bucket=us._bucket(), Key=key)
+    if etag is not None and obj.get("ETag") != etag:
+        return "superseded"
+    reader = _HashingReader(obj["Body"])
     result = _clamd().instream(reader)
     status, signature = (result or {}).get("stream", ("ERROR", "no response"))
 
-    if reader.sha256.hexdigest() != sha256:
+    if etag is None:
+        changed = reader.sha256.hexdigest() != sha256
+    else:
+        changed = s3.head_object(Bucket=us._bucket(), Key=key).get("ETag") != etag
+    if changed:
         # The object changed under us; its own job decides.
         return "superseded"
 
     if status == "OK":
+        if etag is not None:
+            update_resource_extra(resource_id, us.CHECKSUM_FIELD, reader.sha256.hexdigest())
         update_resource_extra(resource_id, STATUS_FIELD, "clean")
         update_resource_extra(resource_id, SCANNED_AT_FIELD, _now())
         return "clean"

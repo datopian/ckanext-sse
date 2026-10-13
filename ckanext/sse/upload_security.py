@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 
 CHECKSUM_FIELD = "sha256"
 _STASH_KEY = "_sse_upload_sha256"
+# Set by ckanext-s3filestore-with-ui for a file uploaded straight to the bucket.
+DIRECT_KEY = "s3filestore_direct_upload"
 _CHUNK = 1024 * 1024
 
 # Real upload formats present in prod (res_format facet, 2026-08); MP4 kept for
@@ -75,8 +77,38 @@ def _max_resource_bytes():
     return mb * 1024 * 1024
 
 
+def _enforce_direct(context):
+    """Apply the allowlist and size limit to a file that went straight to the bucket.
+
+    CKAN never sees those bytes, so there is nothing to hash here (the scan
+    job records the SHA-256 when it reads the object) and the file is already
+    stored: a rejected one is deleted so it does not linger as an orphan.
+    """
+    direct = context.get(DIRECT_KEY)
+    if not direct:
+        return False
+    ext = os.path.splitext(direct.get("filename") or "")[1].lower().lstrip(".")
+    allowed = allowed_formats()
+    problem = None
+    if not ext or ext not in allowed:
+        problem = "File type '{}' is not allowed. Permitted types: {}.".format(
+            ext or "unknown", ", ".join(sorted(allowed)))
+    elif direct.get("size", 0) > _max_resource_bytes():
+        problem = "File is larger than the {} MB limit.".format(
+            _max_resource_bytes() // (1024 * 1024))
+    if problem:
+        try:
+            _s3().delete_object(Bucket=_bucket(), Key=direct["key"])
+        except Exception:
+            log.exception("Could not delete rejected upload %s", direct.get("key"))
+        raise toolkit.ValidationError({"upload": [problem]})
+    return True
+
+
 def _enforce_and_hash(context, resource):
     """Reject a disallowed upload; stash the SHA-256 of an allowed one."""
+    if _enforce_direct(context):
+        return
     upload = resource.get("upload")
     stream = _upload_stream(upload)
     if stream is None:

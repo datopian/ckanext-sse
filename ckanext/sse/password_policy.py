@@ -450,7 +450,7 @@ def _read_blocklist_file(path):
         return frozenset()
 
     _BLOCKLIST_CACHE[path] = (stamp, words)
-    log.info("Loaded %s password blocklist entries from %s", len(words), path)
+    log.info("%s entries loaded from %s (password blocklist)", len(words), path)
     return words
 
 
@@ -1118,7 +1118,7 @@ def _record_if_changed(ident, before, context):
         # A password that changed but went unrecorded costs the user an early
         # rotation prompt. Failing the change itself would cost them the
         # account.
-        log.exception("Failed to record password change for %s", ident)
+        log.exception("%s: failed to record the password change", ident)
 
 
 @toolkit.chained_action

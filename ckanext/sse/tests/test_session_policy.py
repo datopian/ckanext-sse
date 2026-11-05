@@ -14,10 +14,12 @@ from ckan.tests.helpers import changed_config
 from ckanext.sse import session_policy as sp
 
 PASSWORD = "quixotic wobble lantern"
+DOWNLOAD_URL = "/dataset/some-id/resource/some-id/download/file.csv"
+TOKEN = {"Authorization": "a-token"}
 
 
 @contextmanager
-def request_for(app, url, user=None, last_seen=None):
+def request_for(app, url, user=None, last_seen=None, headers=None):
     """A request context, optionally signed in and with an activity stamp.
 
     ``beaker.session`` is seeded because CKAN's session interface reads the
@@ -25,7 +27,8 @@ def request_for(app, url, user=None, last_seen=None):
     it; without it Flask hands back a ``NullSession`` that raises on write.
     """
     with app.flask_app.test_request_context(
-            url, environ_overrides={"beaker.session": {}}):
+            url, headers=headers or {},
+            environ_overrides={"beaker.session": {}}):
         if user is not None:
             login_user(model.User.get(user["id"]))
         if last_seen is not None:
@@ -82,6 +85,12 @@ class TestIdleTimeout:
         stale = int(time.time()) - (sp.DEFAULT_IDLE_TIMEOUT_MINUTES * 60) - 1
         with request_for(app, "/api/3/action/status_show", user,
                          last_seen=stale):
+            assert sp.enforce_idle_timeout() is None
+
+    def test_token_requests_are_exempt(self, app, user):
+        stale = int(time.time()) - (sp.DEFAULT_IDLE_TIMEOUT_MINUTES * 60) - 1
+        with request_for(app, DOWNLOAD_URL, user, last_seen=stale,
+                         headers=TOKEN):
             assert sp.enforce_idle_timeout() is None
 
     def test_the_timeout_can_be_switched_off(self, app, user):
@@ -157,6 +166,11 @@ class TestAbsoluteTimeout:
 
     def test_anonymous_requests_are_untouched(self, app):
         with request_for(app, "/dataset"):
+            assert sp.enforce_absolute_timeout() is None
+
+    def test_token_requests_are_exempt(self, app, user):
+        with request_for(app, DOWNLOAD_URL, user, headers=TOKEN):
+            session[sp.SESSION_START_KEY] = int(time.time()) - self._cap() - 1
             assert sp.enforce_absolute_timeout() is None
 
     def test_the_cap_can_be_switched_off(self, app, user):
@@ -244,6 +258,27 @@ class TestSingleSession:
         with request_for(app, "/dataset"):
             session[sp.SESSION_ID_KEY] = "stale"
             assert sp.enforce_single_session() is None
+
+    @pytest.mark.parametrize("headers", [
+        {"Authorization": "a-token"},
+        {"X-CKAN-API-Key": "a-token"},
+    ])
+    def test_token_requests_on_page_routes_are_exempt(self, app, user,
+                                                      headers):
+        """DataPusher+ downloads /dataset/.../download/... with a token while
+        the same user is signed in on a browser; that is not a second login."""
+        self._login(app, user)
+        with request_for(app, DOWNLOAD_URL, user, headers=headers):
+            session.pop(sp.SESSION_ID_KEY, None)
+            assert sp.enforce_single_session() is None
+
+    def test_basic_auth_is_not_a_token(self, app, user):
+        """An Authorization value with a space is HTTP Basic, not a token."""
+        self._login(app, user)
+        with request_for(app, DOWNLOAD_URL, user,
+                         headers={"Authorization": "Basic dXNlcjpwYXNz"}):
+            session.pop(sp.SESSION_ID_KEY, None)
+            assert sp.enforce_single_session() is not None
 
     def test_other_extras_are_kept(self, app, user):
         user_obj = model.User.get(user["id"])

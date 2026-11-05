@@ -88,6 +88,33 @@ CURRENT_SESSION_KEY = "current_session"
 SIGNED_IN_ELSEWHERE = "signed_in_elsewhere"
 
 
+def _is_token_request():
+    """True when the request authenticates with an API token, as CKAN reads it.
+
+    Token clients (DataPusher+, the portal's server-side calls) are not browser
+    sessions, whatever route they hit: they also fetch /dataset/.../download/...
+    and other page routes, not only /api/. Mirrors ckan.views._get_user_for_apitoken:
+    the configured header, then Authorization without a space (a space means
+    HTTP Basic credentials, not a token).
+    """
+    request = toolkit.request
+    header = toolkit.config.get("apikey_header_name") or "X-CKAN-API-Key"
+    if request.headers.get(header) or request.environ.get(header):
+        return True
+    authorization = (request.environ.get("HTTP_AUTHORIZATION")
+                     or request.environ.get("Authorization") or "")
+    return bool(authorization) and " " not in authorization
+
+
+def _exempt_request():
+    """Requests the session checks never apply to: the action API, token
+    clients on any route, and assets."""
+    if toolkit.request.path.startswith("/api/") or _is_token_request():
+        return True
+    blueprint = (toolkit.request.endpoint or "").split(".")[0]
+    return blueprint in ("static", "webassets", "_debug_toolbar")
+
+
 def _persist_session():
     """Write the session back after we have changed it.
 
@@ -211,11 +238,7 @@ def _enforce_absolute_timeout():
     if user is None or getattr(user, "is_anonymous", True):
         return None
 
-    if toolkit.request.path.startswith("/api/"):
-        return None
-
-    blueprint = (toolkit.request.endpoint or "").split(".")[0]
-    if blueprint in ("static", "webassets", "_debug_toolbar"):
+    if _exempt_request():
         return None
 
     now = int(time.time())
@@ -260,11 +283,7 @@ def _enforce_single_session():
     if user is None or getattr(user, "is_anonymous", True):
         return None
 
-    if toolkit.request.path.startswith("/api/"):
-        return None
-
-    blueprint = (toolkit.request.endpoint or "").split(".")[0]
-    if blueprint in ("static", "webassets", "_debug_toolbar"):
+    if _exempt_request():
         return None
 
     try:
@@ -304,13 +323,9 @@ def _enforce_idle_timeout():
     if user is None or getattr(user, "is_anonymous", True):
         return None
 
-    if toolkit.request.path.startswith("/api/"):
-        return None
-
     # Assets are skipped so that the request that gets the message is the
     # page the user was looking at, not the stylesheet next to it.
-    blueprint = (toolkit.request.endpoint or "").split(".")[0]
-    if blueprint in ("static", "webassets", "_debug_toolbar"):
+    if _exempt_request():
         return None
 
     now = int(time.time())

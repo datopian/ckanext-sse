@@ -667,6 +667,9 @@ def user_extras(context, data_dict):
     ssen_plugin_extras = plugin_extras.get("ssen")
 
     result = {}
+    # Lets the portal's Smart Meter API attribute its audit events, since the
+    # token it is called with carries no username.
+    result["name"] = user.name
     result["is_verified_user"] = False
     if ssen_plugin_extras and "is_verified_user" in ssen_plugin_extras:
         result["is_verified_user"] = asbool(ssen_plugin_extras["is_verified_user"])

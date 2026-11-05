@@ -39,6 +39,21 @@ a single signal:
   ``IApiToken.preprocess_api_token()``, which runs once per token-authenticated
   request on the way to the database lookup.
 
+Data leaving the platform is covered by two dedicated events, so a download
+can be found without reconstructing it from ``api_request`` lines:
+
+* ``resource_download`` -- a hit on the resource download route, whichever
+  extension serves it (core, s3filestore or googleanalytics re-register the
+  same URL under their own endpoint names, so the path is matched instead).
+  Emitted from ``request_finished`` so a refused download is recorded too.
+* ``data_export`` -- rows read out of the DataStore: ``datastore_search`` and
+  ``datastore_search_sql`` from chained actions, ``/datastore/dump`` from
+  ``request_finished``. The dump view pages through ``datastore_search``
+  internally, so searches made inside a dump are left to the dump's own event.
+
+Both carry the dataset, its organisation and whether it is private, so events
+on restricted data can be filtered without a join against CKAN.
+
 Nothing derived from a request body is logged verbatim. Parameters are
 redacted by key name and size-capped before they are serialised -- see
 ``_audit_params()`` for why both are load-bearing.
@@ -144,6 +159,19 @@ DEFAULT_MAX_PARAMS = 4096
 DEFAULT_SLOW_QUERY_MS = 5000
 DEFAULT_LARGE_RESULT_ROWS = 10000
 
+# ``/<type>/<id>/resource/<resource_id>/download[/<filename>]`` and the
+# s3filestore ``fs_download`` fallback.
+RESOURCE_DOWNLOAD_PATH = re.compile(r"/resource/[^/]+/(fs_)?download(/|$)")
+
+# DataStore tables are named after their resource id, and a UUID is not a
+# valid bare identifier, so every table a query reads appears double-quoted.
+SQL_RESOURCE_TABLE = re.compile(
+    r'"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"',
+    re.IGNORECASE,
+)
+
+DATASTORE_DUMP_ENDPOINT = "datastore.dump"
+
 
 def get_subscriptions():
     return {
@@ -221,6 +249,11 @@ def on_request_finished(sender, response=None, **kwargs):
         _log_api_request(response)
     except Exception:
         log.exception("Failed to emit API request audit log")
+    try:
+        _log_resource_download(response)
+        _log_datastore_dump(response)
+    except Exception:
+        log.exception("Failed to emit download audit log")
 
 
 def _safe_attr(obj, attr):
@@ -600,6 +633,168 @@ def _client_ip(forwarded_for, remote_addr, cdn_client_ip=None):
     return chain[index]
 
 
+def _request_user():
+    user = toolkit.current_user
+    if not user or _safe_attr(user, "is_anonymous"):
+        return None, None
+    return _safe_attr(user, "name"), _safe_attr(user, "id")
+
+
+def _dataset_scope(resource_id):
+    """Dataset, organisation and visibility of a resource, for filtering.
+
+    Read straight from the model rather than through ``resource_show``: this
+    runs after the request has been answered, often a refused one, and must
+    not trip an authorisation check of its own. A missing resource yields
+    nothing rather than an error.
+    """
+    if not resource_id:
+        return {}
+    try:
+        from ckan import model
+
+        resource = model.Resource.get(resource_id)
+        package = resource.package if resource else None
+        if package is None:
+            return {}
+        owner = (
+            model.Group.get(package.owner_org) if package.owner_org else None
+        )
+        return {
+            "dataset_id": package.id,
+            "dataset_name": package.name,
+            "organization": _safe_attr(owner, "name"),
+            "dataset_private": bool(package.private),
+        }
+    except Exception:
+        log.exception("Failed to resolve dataset for resource %s", resource_id)
+        return {}
+
+
+def _log_resource_download(response):
+    if not has_request_context():
+        return
+    view_args = toolkit.request.view_args or {}
+    resource_id = view_args.get("resource_id")
+    if not resource_id or not RESOURCE_DOWNLOAD_PATH.search(
+        toolkit.request.path
+    ):
+        return
+
+    status_code = getattr(response, "status_code", None)
+    # A download answers with a redirect to the file, so a redirect alone is
+    # success; one to the login page (noanonaccess) is a refusal.
+    location = getattr(response, "location", None) or ""
+    refused = (status_code is not None and status_code >= 400) or (
+        "/user/login" in location
+    )
+    user_name, user_id = _request_user()
+    preview = toolkit.asbool(toolkit.request.args.get("preview", False))
+    emit_audit_log(
+        action="resource_download",
+        status="failure" if refused else "success",
+        user_name=user_name,
+        user_id=user_id,
+        message="Resource {} {} {}".format(
+            resource_id,
+            "preview" if preview else "download",
+            "refused" if refused else "served",
+        ),
+        resource_id=resource_id,
+        http_status=status_code,
+        preview=preview,
+        **_dataset_scope(resource_id)
+    )
+
+
+def _log_datastore_dump(response):
+    if not has_request_context():
+        return
+    if toolkit.request.endpoint != DATASTORE_DUMP_ENDPOINT:
+        return
+
+    resource_id = (toolkit.request.view_args or {}).get("resource_id")
+    status_code = getattr(response, "status_code", None)
+    failed = status_code is not None and status_code >= 400
+    user_name, user_id = _request_user()
+    args = toolkit.request.args
+    emit_audit_log(
+        action="data_export",
+        status="failure" if failed else "success",
+        user_name=user_name,
+        user_id=user_id,
+        message="DataStore dump of {} {}".format(
+            resource_id, "refused" if failed else "started"
+        ),
+        export_method="datastore_dump",
+        resource_ids=[resource_id] if resource_id else [],
+        resource_id=resource_id,
+        http_status=status_code,
+        # The response streams after this point, so the row count is not
+        # known; the requested window is.
+        format=args.get("format", "csv"),
+        params=_audit_params(),
+        **_dataset_scope(resource_id)
+    )
+
+
+def _in_datastore_dump():
+    """Whether a DataStore search is the dump view paging through a table.
+
+    The dump view probes with one ``datastore_search`` inside the request,
+    then pages from a streamed generator after the view has returned. The
+    first is caught by the endpoint, the rest by the request context being
+    gone. Either way the dump's own event covers them.
+    """
+    if not has_request_context():
+        return True
+    return toolkit.request.endpoint == DATASTORE_DUMP_ENDPOINT
+
+
+@toolkit.chained_action
+@toolkit.side_effect_free
+def datastore_search(original_action, context, data_dict):
+    """Record each DataStore read as a data export."""
+    if _in_datastore_dump():
+        return original_action(context, data_dict)
+    try:
+        result = original_action(context, data_dict)
+    except Exception as error:
+        _log_search_export(context, data_dict, error=error)
+        raise
+    _log_search_export(context, data_dict, result=result)
+    return result
+
+
+def _log_search_export(context, data_dict, result=None, error=None):
+    try:
+        resource_id = data_dict.get("resource_id") or data_dict.get("id")
+        records = (result or {}).get("records") or []
+        emit_audit_log(
+            action="data_export",
+            status="failure" if error else "success",
+            user_name=context.get("user") or None,
+            user_id=_safe_attr(context.get("auth_user_obj"), "id"),
+            message="DataStore search of {} {}, {} rows".format(
+                resource_id, "failed" if error else "returned", len(records)
+            ),
+            export_method="datastore_search",
+            resource_ids=[resource_id] if resource_id else [],
+            resource_id=resource_id,
+            token_id=getattr(g, TOKEN_ID_ATTR, None),
+            row_count=len(records),
+            total=(result or {}).get("total"),
+            limit=(result or {}).get("limit", data_dict.get("limit")),
+            offset=data_dict.get("offset"),
+            filters=_trim_value(data_dict.get("filters")),
+            q=_trim_value(data_dict.get("q")),
+            error_class=type(error).__name__ if error else None,
+            **_dataset_scope(resource_id)
+        )
+    except Exception:
+        log.exception("Failed to emit DataStore search audit log")
+
+
 @toolkit.chained_action
 @toolkit.side_effect_free
 def datastore_search_sql(original_action, context, data_dict):
@@ -609,10 +804,52 @@ def datastore_search_sql(original_action, context, data_dict):
         result = original_action(context, data_dict)
     except Exception as error:
         _log_sql_query(context, data_dict, started, error=error)
+        _log_sql_export(context, data_dict, error=error)
         raise
 
     _log_sql_query(context, data_dict, started, result=result)
+    _log_sql_export(context, data_dict, result=result)
     return result
+
+
+def _log_sql_export(context, data_dict, result=None, error=None):
+    """The export view of a SQL query: which resources, how many rows.
+
+    Kept apart from ``datastore_sql_query``, which is about the query itself
+    (timing, fingerprint, flags), so one filter on ``data_export`` finds
+    every read regardless of the method used.
+    """
+    try:
+        sql = data_dict.get("sql") or ""
+        resource_ids = sorted(
+            {m.lower() for m in SQL_RESOURCE_TABLE.findall(sql)}
+        )
+        records = (result or {}).get("records") or []
+        scope = _dataset_scope(resource_ids[0]) if len(resource_ids) == 1 else {}
+        emit_audit_log(
+            action="data_export",
+            status="failure" if error else "success",
+            user_name=context.get("user") or None,
+            user_id=_safe_attr(context.get("auth_user_obj"), "id"),
+            message="DataStore SQL export from {} {}, {} rows".format(
+                ", ".join(resource_ids) or "unknown tables",
+                "failed" if error else "returned",
+                len(records),
+            ),
+            export_method="datastore_search_sql",
+            resource_ids=resource_ids,
+            token_id=(
+                getattr(g, TOKEN_ID_ATTR, None)
+                if has_request_context()
+                else None
+            ),
+            row_count=len(records),
+            records_truncated=bool((result or {}).get("records_truncated")),
+            error_class=type(error).__name__ if error else None,
+            **scope
+        )
+    except Exception:
+        log.exception("Failed to emit DataStore SQL export audit log")
 
 
 def _log_sql_query(context, data_dict, started, result=None, error=None):
@@ -710,12 +947,15 @@ class SecurityAuditPlugin(plugins.SingletonPlugin):
     # IActions
     def get_actions(self):
         # Chaining onto a missing action raises at startup, and datastore
-        # withholds this one unless sqlsearch is enabled.
-        if not toolkit.asbool(
+        # withholds the SQL one unless sqlsearch is enabled.
+        if not plugins.plugin_loaded("datastore"):
+            return {}
+        actions = {"datastore_search": datastore_search}
+        if toolkit.asbool(
             toolkit.config.get("ckan.datastore.sqlsearch.enabled", False)
         ):
-            return {}
-        return {"datastore_search_sql": datastore_search_sql}
+            actions["datastore_search_sql"] = datastore_search_sql
+        return actions
 
     # IAuthenticator
     def logout(self):

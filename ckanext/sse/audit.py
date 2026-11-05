@@ -371,7 +371,7 @@ def _audit_params():
     # File contents are never logged; the field and filename are the audit
     # trail, and the bytes are the resource itself.
     for field, storage in request.files.items():
-        raw[field] = "<file:{}>".format(
+        raw[field] = "[file: {}]".format(
             getattr(storage, "filename", None) or "unnamed"
         )
 

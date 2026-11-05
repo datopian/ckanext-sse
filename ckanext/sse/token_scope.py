@@ -237,7 +237,7 @@ def enforce_token_scope():
         return None
 
     log.warning(
-        "Token scope: %s blocked from %s",
+        "%s blocked from %s by API token scope",
         name, action or (toolkit.request.endpoint or toolkit.request.path),
     )
     return _forbidden()

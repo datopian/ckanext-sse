@@ -31,8 +31,6 @@ ckan.module("dataset-review-modal", function($, _) {
                                 id="modal-confirm-btn"
                                 class="btn btn-success"
                                 type="submit"
-                                name="${openModalButtonName}"
-                                value="${openModalButtonValue}"
                             >
                                 Confirm
                             </button>
@@ -40,7 +38,12 @@ ckan.module("dataset-review-modal", function($, _) {
                     </div>
                 </div>`);
 
-            modalEl.insertAfter(openModalButtonEl);
+            // Set from the opening button as attributes, never as markup.
+            modalEl.find("#modal-confirm-btn").attr({
+                name: openModalButtonName,
+                value: openModalButtonValue,
+            });
+            openModalButtonEl.get(0).after(modalEl.get(0));
 
             this._openModal = () => {
                 modalEl.css("display", "block");
@@ -55,7 +58,7 @@ ckan.module("dataset-review-modal", function($, _) {
             openModalButtonEl.on("click", this._openModal);
 
             $(modalEl).on("click", (e) => {
-                if (!$(e.target).closest(".modal-container").length) {
+                if (!e.target.closest(".modal-container")) {
                     this._closeModal();
                 }
             });

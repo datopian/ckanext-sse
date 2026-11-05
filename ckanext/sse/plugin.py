@@ -8,7 +8,7 @@ import logging
 from ckanext.sse import action, auth
 from ckanext.sse import cli, upload_security, upload_scan, session_policy, token_scope
 from ckanext.sse import password_policy, login_throttle, account_lifecycle
-from ckanext.sse import scim
+from ckanext.sse import scim, mail_suppression
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
 from .model import PackageAccessRequest, FormResponse, UserPasswordHistory
@@ -80,6 +80,8 @@ class SsePlugin(plugins.SingletonPlugin):
             FormResponse.__table__.create(meta.engine)
         if not UserPasswordHistory.__table__.exists(meta.engine):
             UserPasswordHistory.__table__.create(meta.engine)
+        # No-op unless ckanext.sse.mail_suppressed_users lists accounts.
+        mail_suppression.install()
 
     # ITemplateHelpers
     def get_helpers(self):

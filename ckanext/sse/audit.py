@@ -52,7 +52,9 @@ can be found without reconstructing it from ``api_request`` lines:
   internally, so searches made inside a dump are left to the dump's own event.
 
 Both carry the dataset, its organisation and whether it is private, so events
-on restricted data can be filtered without a join against CKAN.
+on restricted data can be filtered without a join against CKAN, and an
+``access_context`` of ``download``, ``preview`` or ``api`` so the reads behind
+an ordinary page view on the portal are not mistaken for exports.
 
 Nothing derived from a request body is logged verbatim. Parameters are
 redacted by key name and size-capped before they are serialised -- see
@@ -703,6 +705,7 @@ def _log_resource_download(response):
         resource_id=resource_id,
         http_status=status_code,
         preview=preview,
+        access_context="preview" if preview else "download",
         **_dataset_scope(resource_id)
     )
 
@@ -727,6 +730,7 @@ def _log_datastore_dump(response):
             resource_id, "refused" if failed else "started"
         ),
         export_method="datastore_dump",
+        access_context="download",
         resource_ids=[resource_id] if resource_id else [],
         resource_id=resource_id,
         http_status=status_code,
@@ -736,6 +740,32 @@ def _log_datastore_dump(response):
         params=_audit_params(),
         **_dataset_scope(resource_id)
     )
+
+
+def _origin():
+    return toolkit.request.headers.get("Origin") if has_request_context() else None
+
+
+def _portal_origins():
+    configured = toolkit.config.get("ckanext.sse.audit.portal_origins", "")
+    return {
+        origin.rstrip("/").lower()
+        for origin in re.split(r"[,\s]+", (configured or "").strip())
+        if origin
+    }
+
+
+def _read_context():
+    """``preview`` for a DataStore read made by a portal page, else ``api``.
+
+    The portal calls CKAN cross-origin from the browser, so its reads carry an
+    ``Origin`` naming it; scripts and API clients normally send none. The
+    header is client-supplied, so this separates page views from API pulls
+    for review and is not a control: the user, filters and row count are on
+    the event either way.
+    """
+    origin = (_origin() or "").rstrip("/").lower()
+    return "preview" if origin and origin in _portal_origins() else "api"
 
 
 def _in_datastore_dump():
@@ -779,6 +809,8 @@ def _log_search_export(context, data_dict, result=None, error=None):
                 resource_id, "failed" if error else "returned", len(records)
             ),
             export_method="datastore_search",
+            access_context=_read_context(),
+            origin=_origin(),
             resource_ids=[resource_id] if resource_id else [],
             resource_id=resource_id,
             token_id=getattr(g, TOKEN_ID_ATTR, None),
@@ -837,6 +869,8 @@ def _log_sql_export(context, data_dict, result=None, error=None):
                 len(records),
             ),
             export_method="datastore_search_sql",
+            access_context=_read_context(),
+            origin=_origin(),
             resource_ids=resource_ids,
             token_id=(
                 getattr(g, TOKEN_ID_ATTR, None)

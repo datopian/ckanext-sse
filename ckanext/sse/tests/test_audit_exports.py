@@ -291,3 +291,69 @@ class TestEndToEnd:
         assert event["status"] == "success"
         assert event["user_name"] == sysadmin["name"]
         assert event["dataset_name"] == dataset["name"]
+
+
+PORTAL = "https://data.example.org"
+
+
+@plugins
+@usefixtures
+@pytest.mark.ckan_config("ckanext.sse.audit.portal_origins", PORTAL + " https://dev.example.org")
+class TestAccessContext:
+    def search(self, app, headers=None):
+        with app.flask_app.test_request_context(
+            "/api/3/action/datastore_search", headers=headers or {}
+        ):
+            audit.datastore_search(
+                search_original({"records": []}), CONTEXT, {"resource_id": RES_ID}
+            )
+
+    def test_portal_origin_is_a_preview(self, app, events):
+        self.search(app, {"Origin": PORTAL + "/"})
+        [event] = [e for e in events() if e["action"] == "data_export"]
+        assert event["access_context"] == "preview"
+        assert event["origin"] == PORTAL + "/"
+
+    def test_no_origin_is_api(self, app, events):
+        self.search(app)
+        [event] = [e for e in events() if e["action"] == "data_export"]
+        assert event["access_context"] == "api"
+
+    def test_other_origin_is_api(self, app, events):
+        self.search(app, {"Origin": "https://elsewhere.example"})
+        [event] = [e for e in events() if e["action"] == "data_export"]
+        assert event["access_context"] == "api"
+
+    def test_sql_from_portal_is_a_preview(self, app, events):
+        with app.flask_app.test_request_context(
+            "/api/3/action/datastore_search_sql", headers={"Origin": PORTAL}
+        ):
+            audit.datastore_search_sql(
+                search_original({"records": []}), CONTEXT,
+                {"sql": 'SELECT 1 FROM "{}"'.format(RES_ID)},
+            )
+        [event] = [e for e in events() if e["action"] == "data_export"]
+        assert event["access_context"] == "preview"
+
+    def test_dump_and_download_are_downloads(self, app, events):
+        finish(app, "/datastore/dump/{}".format(RES_ID), response(200))
+        finish(
+            app,
+            "/dataset/x/resource/{}/download".format(RES_ID),
+            response(302, "https://bucket.example/f"),
+        )
+        finish(
+            app,
+            "/dataset/x/resource/{}/download?preview=1".format(RES_ID),
+            response(200),
+        )
+        contexts = [e["access_context"] for e in events() if "access_context" in e]
+        assert contexts == ["download", "download", "preview"]
+
+
+@plugins
+@usefixtures
+def test_unset_portal_origins_means_everything_is_api(app, events):
+    TestAccessContext().search(app, {"Origin": PORTAL})
+    [event] = [e for e in events() if e["action"] == "data_export"]
+    assert event["access_context"] == "api"

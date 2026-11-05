@@ -484,7 +484,11 @@ def _is_pwned(password):
     try:
         import requests
 
-        digest = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+        # SHA-1 is what the Pwned Passwords range API is keyed on (k-anonymity:
+        # only the first 5 hex chars leave the server); not used for security.
+        digest = hashlib.new(
+            "sha1", password.encode("utf-8"), usedforsecurity=False
+        ).hexdigest().upper()
         prefix, suffix = digest[:5], digest[5:]
         resp = requests.get(
             "https://api.pwnedpasswords.com/range/" + prefix,

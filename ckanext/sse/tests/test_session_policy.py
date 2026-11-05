@@ -175,3 +175,72 @@ class TestAbsoluteTimeout:
         with changed_config("ckanext.sse.session.max_session_hours", "nope"):
             assert sp.max_session_seconds() == \
                 sp.DEFAULT_MAX_SESSION_HOURS * 3600
+
+
+def _current_session(user):
+    extras = model.User.get(user["id"]).plugin_extras or {}
+    return (extras.get(sp.EXTRAS_NAMESPACE) or {}).get(sp.CURRENT_SESSION_KEY)
+
+
+@pytest.mark.usefixtures("with_plugins", "sse_tables")
+class TestSingleSession:
+    def _login(self, app, user):
+        """Log in in a fresh request and return the session id it got."""
+        with request_for(app, "/dataset"):
+            sp.on_user_logged_in(None, user=model.User.get(user["id"]))
+            return session.get(sp.SESSION_ID_KEY)
+
+    def test_login_records_the_current_session(self, app, user):
+        session_id = self._login(app, user)
+        assert session_id
+        assert _current_session(user) == session_id
+
+    def test_a_newer_login_ends_the_older_session(self, app, user):
+        """AC-10: signing in again ends the previous session."""
+        first = self._login(app, user)
+        second = self._login(app, user)
+        assert first != second
+        with request_for(app, "/dataset", user):
+            session[sp.SESSION_ID_KEY] = first
+            response = sp.enforce_single_session()
+            assert response is not None
+            assert response.status_code == 302
+            assert "/user/login" in response.headers["Location"]
+
+    def test_the_newest_session_is_left_alone(self, app, user):
+        self._login(app, user)
+        self._login(app, user)
+        with request_for(app, "/dataset", user):
+            # request_for's login_user() fires the signal too, so read back
+            # whichever login is current now.
+            session[sp.SESSION_ID_KEY] = _current_session(user)
+            assert sp.enforce_single_session() is None
+
+    def test_a_session_without_an_id_is_left_alone(self, app, user):
+        # Sessions from before the change age out at the absolute cap.
+        self._login(app, user)
+        with request_for(app, "/dataset", user):
+            session.pop(sp.SESSION_ID_KEY, None)
+            assert sp.enforce_single_session() is None
+
+    def test_the_api_is_exempt(self, app, user):
+        first = self._login(app, user)
+        self._login(app, user)
+        with request_for(app, "/api/3/action/status_show", user):
+            session[sp.SESSION_ID_KEY] = first
+            assert sp.enforce_single_session() is None
+
+    def test_anonymous_requests_are_untouched(self, app):
+        with request_for(app, "/dataset"):
+            session[sp.SESSION_ID_KEY] = "stale"
+            assert sp.enforce_single_session() is None
+
+    def test_other_extras_are_kept(self, app, user):
+        user_obj = model.User.get(user["id"])
+        user_obj.plugin_extras = {
+            sp.EXTRAS_NAMESPACE: {"is_verified_user": True}}
+        model.Session.commit()
+        self._login(app, user)
+        extras = model.User.get(user["id"]).plugin_extras
+        assert extras[sp.EXTRAS_NAMESPACE]["is_verified_user"] is True
+        assert extras[sp.EXTRAS_NAMESPACE][sp.CURRENT_SESSION_KEY]

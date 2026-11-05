@@ -30,6 +30,11 @@ There are two independent timers, and a session ends at whichever fires first:
   however it was authenticated (local password or Azure AD SSO); how gracefully
   the provider re-authenticates is the provider's business.
 
+A user may also hold only one signed-in session at a time (AC-10). Each login
+gets a new session id, kept both in the Beaker session and on the user's
+``plugin_extras`` as the current one; a session whose id no longer matches has
+been replaced by a newer login and is ended on its next request.
+
 Configuration
 -------------
 
@@ -41,10 +46,12 @@ Configuration
 
 import logging
 import time
+import uuid
 
 from flask import Blueprint, has_request_context
 from flask_login import logout_user, user_logged_in
 
+import ckan.model as model
 import ckan.plugins.toolkit as toolkit
 from ckan.common import session
 
@@ -71,6 +78,13 @@ SESSION_KEY = "sse_last_seen"
 # When the session was established. Set at sign-in and never refreshed -- the
 # absolute cap is measured from it.
 SESSION_START_KEY = "sse_session_start"
+
+# AC-10: this session's id, and where the user's current one is recorded.
+SESSION_ID_KEY = "sse_session_id"
+EXTRAS_NAMESPACE = "ssen"
+CURRENT_SESSION_KEY = "current_session"
+
+SIGNED_IN_ELSEWHERE = "signed_in_elsewhere"
 
 
 def _persist_session():
@@ -140,6 +154,28 @@ def on_user_logged_in(sender, user=None, **kwargs):
     except Exception:
         log.debug("Could not stamp the session start time")
 
+    try:
+        _claim_session(user)
+    except Exception:
+        log.exception("Could not record the current session")
+
+
+def _claim_session(user):
+    """Make this session the user's only valid one (AC-10)."""
+    user_obj = model.User.get(getattr(user, "id", None))
+    if user_obj is None:
+        return
+    session_id = uuid.uuid4().hex
+    extras = dict(user_obj.plugin_extras or {})
+    ns = dict(extras.get(EXTRAS_NAMESPACE) or {})
+    ns[CURRENT_SESSION_KEY] = session_id
+    extras[EXTRAS_NAMESPACE] = ns
+    user_obj.plugin_extras = extras
+    model.Session.add(user_obj)
+    model.Session.commit()
+    session[SESSION_ID_KEY] = session_id
+    _persist_session()
+
 
 def enforce_absolute_timeout():
     """End a session older than the absolute cap, whatever its activity.
@@ -187,7 +223,52 @@ def _enforce_absolute_timeout():
         return None
 
     if now - int(start) > limit:
-        return _end_session(user, limit, absolute=True)
+        return _end_session(user, "absolute_timeout", limit)
+    return None
+
+
+def enforce_single_session():
+    """End a session that a newer login by the same user has replaced.
+
+    Returns a redirect to the login page when the session is ended, ``None``
+    otherwise. Nothing here may raise: it runs before every request.
+    """
+    try:
+        return _enforce_single_session()
+    except Exception:
+        log.exception("Single session check failed; allowing the request")
+        return None
+
+
+def _enforce_single_session():
+    if not has_request_context():
+        return None
+
+    user = toolkit.current_user
+    if user is None or getattr(user, "is_anonymous", True):
+        return None
+
+    if toolkit.request.path.startswith("/api/"):
+        return None
+
+    blueprint = (toolkit.request.endpoint or "").split(".")[0]
+    if blueprint in ("static", "webassets", "_debug_toolbar"):
+        return None
+
+    try:
+        session_id = session.get(SESSION_ID_KEY)
+    except Exception:
+        return None
+    # Sessions from before this shipped carry no id and are left to age out
+    # at the absolute cap.
+    if not session_id:
+        return None
+
+    ns = (getattr(user, "plugin_extras", None) or {}).get(
+        EXTRAS_NAMESPACE) or {}
+    current = ns.get(CURRENT_SESSION_KEY)
+    if current and current != session_id:
+        return _end_session(user, SIGNED_IN_ELSEWHERE)
     return None
 
 
@@ -230,7 +311,7 @@ def _enforce_idle_timeout():
         return None
 
     if last_seen and now - int(last_seen) > timeout:
-        return _end_session(user, timeout)
+        return _end_session(user, "idle_timeout", timeout)
 
     if not last_seen or now - int(last_seen) > STAMP_INTERVAL_SECONDS:
         try:
@@ -241,24 +322,25 @@ def _enforce_idle_timeout():
     return None
 
 
-def _end_session(user, timeout, absolute=False):
-    name = getattr(user, "name", None)
-    if absolute:
+def _end_session(user, reason, timeout=None):
+    name = getattr(user, "name", None) or "unknown"
+    if reason == "absolute_timeout":
         message = "Session for {} ended after {} seconds (absolute cap)".format(
-            name or "unknown", timeout)
-        reason = "absolute_timeout"
+            name, timeout)
+    elif reason == SIGNED_IN_ELSEWHERE:
+        message = "Session for {} ended by a newer login".format(name)
     else:
         message = "Session for {} ended after {} seconds idle".format(
-            name or "unknown", timeout)
-        reason = "idle_timeout"
+            name, timeout)
+    audit = {"timeout_seconds": timeout} if timeout is not None else {}
     emit_audit_log(
         action="user_logout",
         status="success",
-        user_name=name,
+        user_name=getattr(user, "name", None),
         user_id=getattr(user, "id", None),
         message=message,
         reason=reason,
-        timeout_seconds=timeout,
+        **audit
     )
 
     logout_user()
@@ -267,10 +349,16 @@ def _end_session(user, timeout, absolute=False):
     try:
         session.pop(SESSION_KEY, None)
         session.pop(SESSION_START_KEY, None)
+        session.pop(SESSION_ID_KEY, None)
     except Exception:
         pass
 
-    if absolute:
+    if reason == SIGNED_IN_ELSEWHERE:
+        toolkit.h.flash_notice(
+            _("You were signed out because your account signed in from "
+              "another browser or device. Please sign in again.")
+        )
+    elif reason == "absolute_timeout":
         toolkit.h.flash_notice(
             _("You were signed out after {hours} hours. Please sign in "
               "again.").format(hours=timeout // 3600)
@@ -294,6 +382,10 @@ def _before_app_request():
     # Absolute cap first: an over-8h session should be sent to the login form
     # even if it is also within the idle window.
     response = enforce_absolute_timeout()
+    if response is not None:
+        return response
+    # Before the idle check, so a replaced session is not stamped as active.
+    response = enforce_single_session()
     if response is not None:
         return response
     return enforce_idle_timeout()

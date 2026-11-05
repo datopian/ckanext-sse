@@ -39,6 +39,16 @@ def verified_users():
     username = request.form.get("username")
     status = asbool(request.form.get("status"))
 
+    user_obj = model.User.get(username)
+    if user_obj is None:
+        return base.abort(404, _("User not found"))
+    # user_patch replaces plugin_extras whole, so send the merged dict or the
+    # other ssen keys (Entra oid, lifecycle state, current session) are lost.
+    extras = dict(user_obj.plugin_extras or {})
+    ssen = dict(extras.get("ssen") or {})
+    ssen["is_verified_user"] = status
+    extras["ssen"] = ssen
+
     try:
         context = cast(
             Context,
@@ -49,7 +59,7 @@ def verified_users():
                 "auth_user_obj": current_user,
             },
         )
-        data_dict = {"id": username, "plugin_extras": { "ssen": { "is_verified_user": status } }}
+        data_dict = {"id": username, "plugin_extras": extras}
         user = logic.get_action("user_patch")(context, data_dict)
     except logic.NotAuthorized:
         return base.abort(403, _("Not authorized to promote user to verified user"))

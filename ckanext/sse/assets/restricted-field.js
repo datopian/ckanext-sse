@@ -27,8 +27,8 @@ ckan.module("restricted-select", function ($, _) {
         }
 
         visibilitySelect.change((ev) => {
-            const selectedOption = $(ev.target).find("option:selected");
-            if (selectedOption.attr("id") === "field-private-option-restricted") {
+            const selectedOption = ev.target.selectedOptions[0];
+            if (selectedOption && selectedOption.id === "field-private-option-restricted") {
               isRestrictedField.find("option").eq(1).attr("selected", "selected");
             } else {
               isRestrictedField.find("option").eq(2).attr("selected", "selected");

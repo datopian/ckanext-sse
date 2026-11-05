@@ -216,10 +216,20 @@ class TestSingleSession:
             session[sp.SESSION_ID_KEY] = _current_session(user)
             assert sp.enforce_single_session() is None
 
-    def test_a_session_without_an_id_is_left_alone(self, app, user):
-        # Sessions from before the change age out at the absolute cap.
+    def test_a_session_without_an_id_is_ended_after_a_login(self, app, user):
+        # Restored from the remember-me cookie, which skips user_logged_in.
         self._login(app, user)
         with request_for(app, "/dataset", user):
+            session.pop(sp.SESSION_ID_KEY, None)
+            assert sp.enforce_single_session() is not None
+
+    def test_a_session_without_an_id_is_left_alone_before_any_login(
+            self, app, user):
+        # Predates the check: nothing to compare against until a new login.
+        with request_for(app, "/dataset", user):
+            user_obj = model.User.get(user["id"])
+            user_obj.plugin_extras = None
+            model.Session.commit()
             session.pop(sp.SESSION_ID_KEY, None)
             assert sp.enforce_single_session() is None
 

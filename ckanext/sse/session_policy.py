@@ -50,6 +50,7 @@ import uuid
 
 from flask import Blueprint, has_request_context
 from flask_login import logout_user, user_logged_in
+from sqlalchemy import text
 
 import ckan.model as model
 import ckan.plugins.toolkit as toolkit
@@ -166,13 +167,24 @@ def _claim_session(user):
     if user_obj is None:
         return
     session_id = uuid.uuid4().hex
-    extras = dict(user_obj.plugin_extras or {})
-    ns = dict(extras.get(EXTRAS_NAMESPACE) or {})
-    ns[CURRENT_SESSION_KEY] = session_id
-    extras[EXTRAS_NAMESPACE] = ns
-    user_obj.plugin_extras = extras
-    model.Session.add(user_obj)
+    # Set only this key, so a concurrent write to another extra is not lost.
+    model.Session.execute(
+        text(
+            'UPDATE "user" SET plugin_extras = jsonb_set('
+            "COALESCE(plugin_extras, '{}'::jsonb), ARRAY[:ns], "
+            "COALESCE(plugin_extras->:ns, '{}'::jsonb) "
+            "|| jsonb_build_object(:key, CAST(:session_id AS text)), true) "
+            "WHERE id = :user_id"
+        ),
+        {
+            "ns": EXTRAS_NAMESPACE,
+            "key": CURRENT_SESSION_KEY,
+            "session_id": session_id,
+            "user_id": user_obj.id,
+        },
+    )
     model.Session.commit()
+    model.Session.expire(user_obj, ["plugin_extras"])
     session[SESSION_ID_KEY] = session_id
     _persist_session()
 
@@ -259,11 +271,9 @@ def _enforce_single_session():
         session_id = session.get(SESSION_ID_KEY)
     except Exception:
         return None
-    # Sessions from before this shipped carry no id and are left to age out
-    # at the absolute cap.
-    if not session_id:
-        return None
 
+    # A session without an id was restored from the remember-me cookie or
+    # predates this check. Once the user has a current login, it is not it.
     ns = (getattr(user, "plugin_extras", None) or {}).get(
         EXTRAS_NAMESPACE) or {}
     current = ns.get(CURRENT_SESSION_KEY)

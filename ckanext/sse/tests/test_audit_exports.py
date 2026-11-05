@@ -357,3 +357,16 @@ def test_unset_portal_origins_means_everything_is_api(app, events):
     TestAccessContext().search(app, {"Origin": PORTAL})
     [event] = [e for e in events() if e["action"] == "data_export"]
     assert event["access_context"] == "api"
+
+
+@pytest.mark.ckan_config("ckan.plugins", "datastore sse")
+@pytest.mark.ckan_config("ckan.datastore.sqlsearch.enabled", "true")
+@pytest.mark.usefixtures("sse_tables", "with_plugins")
+def test_user_extras_names_the_caller(app):
+    """The portal's Smart Meter API attributes its audit events with this."""
+    from ckan.tests import factories
+
+    user = factories.User(password="Tr0mb0ne-Yak!79")
+    token = factories.APIToken(user=user["name"])["token"]
+    resp = app.get("/api/3/action/user_extras", headers={"Authorization": token})
+    assert resp.json["result"]["name"] == user["name"]

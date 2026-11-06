@@ -1,3 +1,4 @@
+from datetime import datetime
 from logging import getLogger
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from ckan.plugins import toolkit
@@ -82,6 +83,8 @@ def access_requests_dashboard():
     else:
         requests.extend(custom_model.PackageAccessRequest.get_by_orgs(
             org_ids))
+    requests.sort(
+        key=lambda r: r.last_event_at or datetime.min, reverse=True)
 
     return render_template('access_requests/access_requests_dashboard.html',
                            requests=requests,

@@ -219,9 +219,11 @@ def direct(filename="data.csv", size=10):
 
 
 def test_direct_allowed_upload_passes_and_is_not_hashed(bucket_deletes):
-    context, resource = {us.DIRECT_KEY: direct()}, {}
+    # The form sends the resource back with the previous file's checksum.
+    context, resource = {us.DIRECT_KEY: direct()}, {us.CHECKSUM_FIELD: "old"}
     us._enforce_and_hash(context, resource)
-    assert us.CHECKSUM_FIELD not in resource and us._STASH_KEY not in context
+    # Pending until the scan job hashes the object: never the old file's hash.
+    assert resource[us.CHECKSUM_FIELD] == "" and us._STASH_KEY not in context
     assert bucket_deletes == []
 
 

@@ -20,6 +20,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
   {% endfor %}
 </div>
 {{super()}} {% endblock %} {% block main_content %}
+{% import 'access_requests/snippets/history.html' as history with context %}
 <div
   style="
     background-color: white;
@@ -115,7 +116,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
     >
       <h2>{% trans %}Pending Requests{% endtrans %}</h2>
       {% if requests|length > 0 %}
-      <table class="table table-striped">
+      <table class="table table-hover">
         <thead>
           <tr>
             <th>{% trans %}Request ID{% endtrans %}</th>
@@ -123,13 +124,15 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
             <th>{% trans %}Requested By{% endtrans %}</th>
             <th>{% trans %}Message{% endtrans %}</th>
             <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Requested At{% endtrans %}</th>
+            <th>{% trans %}Last Decision{% endtrans %}</th>
             <th>{% trans %}Actions{% endtrans %}</th>
           </tr>
         </thead>
         <tbody>
           {% for request_item in requests if request_item.status == 'pending' %}
           <tr>
-            <td>{{ request_item.id }}</td>
+            <td>{{ request_item.id }}<br />{{ history.toggle(request_item, 'pending') }}</td>
             <td>
               {% if request_item.package %}
               <a
@@ -157,6 +160,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% else %} {% trans %}Organization Not Found{% endtrans %} {%
               endif %}
             </td>
+            {{ history.date_cells(request_item) }}
             <td>
               <form
                 action="{{ url_for('access_requests.update_request_status') }}"
@@ -243,6 +247,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               </div>
             </td>
           </tr>
+          {{ history.timeline(request_item, 'pending') }}
           {% endfor %}
         </tbody>
       </table>
@@ -259,7 +264,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
     >
       <h2>{% trans %}Approved Requests{% endtrans %}</h2>
       {% if requests|length > 0 %}
-      <table class="table table-striped">
+      <table class="table table-hover">
         <thead>
           <tr>
             <th>{% trans %}Request ID{% endtrans %}</th>
@@ -267,6 +272,8 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
             <th>{% trans %}Requested By{% endtrans %}</th>
             <th>{% trans %}Message{% endtrans %}</th>
             <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Requested At{% endtrans %}</th>
+            <th>{% trans %}Last Decision{% endtrans %}</th>
             <th>{% trans %}Status{% endtrans %}</th>
             <th>{% trans %}Revoke{% endtrans %}</th>
           </tr>
@@ -275,7 +282,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
           {% for request_item in requests if request_item.status == 'approved'
           %}
           <tr>
-            <td>{{ request_item.id }}</td>
+            <td>{{ request_item.id }}<br />{{ history.toggle(request_item, 'approved') }}</td>
             <td>
               {% if request_item.package %}
               <a
@@ -303,6 +310,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% else %} {% trans %}Organization Not Found{% endtrans %} {%
               endif %}
             </td>
+            {{ history.date_cells(request_item) }}
             <td>
               <span class="badge bg-success"
                 >{% trans %}Approved{% endtrans %}</span
@@ -422,6 +430,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               </div>
             </td>
           </tr>
+          {{ history.timeline(request_item, 'approved') }}
           {% endfor %}
         </tbody>
       </table>
@@ -438,7 +447,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
     >
       <h2>{% trans %}Rejected Requests{% endtrans %}</h2>
       {% if requests|length > 0 %}
-      <table class="table table-striped">
+      <table class="table table-hover">
         <thead>
           <tr>
             <th>{% trans %}Request ID{% endtrans %}</th>
@@ -446,6 +455,8 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
             <th>{% trans %}Requested By{% endtrans %}</th>
             <th>{% trans %}Message{% endtrans %}</th>
             <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Requested At{% endtrans %}</th>
+            <th>{% trans %}Last Decision{% endtrans %}</th>
             <th>{% trans %}Status{% endtrans %}</th>
             <th>{% trans %}Rejection Message{% endtrans %}</th>
             <th>{% trans %}Rejected By{% endtrans %}</th>
@@ -455,7 +466,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
           {% for request_item in requests if request_item.status == 'rejected'
           %}
           <tr>
-            <td>{{ request_item.id }}</td>
+            <td>{{ request_item.id }}<br />{{ history.toggle(request_item, 'rejected') }}</td>
             <td>
               {% if request_item.package %}
               <a
@@ -483,6 +494,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% else %} {% trans %}Organization Not Found{% endtrans %} {%
               endif %}
             </td>
+            {{ history.date_cells(request_item) }}
             <td>
               <span class="badge bg-danger"
                 >{% trans %}Rejected{% endtrans %}</span
@@ -498,6 +510,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% endif %}
             </td>
           </tr>
+          {{ history.timeline(request_item, 'rejected') }}
           {% endfor %}
         </tbody>
       </table>
@@ -514,7 +527,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
     >
       <h2>{% trans %}Revoked Requests{% endtrans %}</h2>
       {% if requests|length > 0 %}
-      <table class="table table-striped">
+      <table class="table table-hover">
         <thead>
           <tr>
             <th>{% trans %}Request ID{% endtrans %}</th>
@@ -522,6 +535,8 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
             <th>{% trans %}Requested By{% endtrans %}</th>
             <th>{% trans %}Message{% endtrans %}</th>
             <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Requested At{% endtrans %}</th>
+            <th>{% trans %}Last Decision{% endtrans %}</th>
             <th>{% trans %}Status{% endtrans %}</th>
             <th>{% trans %}Revocation Message{% endtrans %}</th>
             <th>{% trans %}Revoked By{% endtrans %}</th>
@@ -531,7 +546,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
           {% for request_item in requests if request_item.status == 'revoked'
           %}
           <tr>
-            <td>{{ request_item.id }}</td>
+            <td>{{ request_item.id }}<br />{{ history.toggle(request_item, 'revoked') }}</td>
             <td>
               {% if request_item.package %}
               <a
@@ -559,6 +574,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% else %} {% trans %}Organization Not Found{% endtrans %} {%
               endif %}
             </td>
+            {{ history.date_cells(request_item) }}
             <td>
               <span class="badge bg-danger"
                 >{% trans %}Revoked{% endtrans %}</span
@@ -574,6 +590,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% endif %}
             </td>
           </tr>
+          {{ history.timeline(request_item, 'revoked') }}
           {% endfor %}
         </tbody>
       </table>
@@ -590,7 +607,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
     >
       <h2>{% trans %}All Requests{% endtrans %}</h2>
       {% if requests|length > 0 %}
-      <table class="table table-striped">
+      <table class="table table-hover">
         <thead>
           <tr>
             <th>{% trans %}Request ID{% endtrans %}</th>
@@ -598,6 +615,8 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
             <th>{% trans %}Requested By{% endtrans %}</th>
             <th>{% trans %}Message{% endtrans %}</th>
             <th>{% trans %}Organization{% endtrans %}</th>
+            <th>{% trans %}Requested At{% endtrans %}</th>
+            <th>{% trans %}Last Decision{% endtrans %}</th>
             <th>{% trans %}Status{% endtrans %}</th>
             <th>{% trans %}Rejection/Revocation Message{% endtrans %}</th>
             <th>{% trans %}Rejected/Revoked/Approved By{% endtrans %}</th>
@@ -606,7 +625,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
         <tbody>
           {% for request_item in requests %}
           <tr>
-            <td>{{ request_item.id }}</td>
+            <td>{{ request_item.id }}<br />{{ history.toggle(request_item, 'all') }}</td>
             <td>
               {% if request_item.package %}
               <a
@@ -634,6 +653,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% else %} {% trans %}Organization Not Found{% endtrans %} {%
               endif %}
             </td>
+            {{ history.date_cells(request_item) }}
             <td>
               {% if request_item.status == 'pending' %}
               <span class="badge bg-warning"
@@ -664,6 +684,7 @@ Dashboard {% endtrans %} {% endblock %} {% block content %}
               {% endif %}
             </td>
           </tr>
+          {{ history.timeline(request_item, 'all') }}
           {% endfor %}
         </tbody>
       </table>

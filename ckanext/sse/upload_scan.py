@@ -202,6 +202,14 @@ def scan_resource(resource_id, sha256, etag=None):
             update_resource_extra(resource_id, us.CHECKSUM_FIELD, reader.sha256.hexdigest())
         update_resource_extra(resource_id, STATUS_FIELD, "clean")
         update_resource_extra(resource_id, SCANNED_AT_FIELD, _now())
+        if etag is not None:
+            # The save recorded this file with its checksum pending; put the
+            # checksum in the dataset history too.
+            try:
+                from .file_history import record_checksum_activity
+                record_checksum_activity(res.package_id)
+            except Exception:
+                log.exception("Could not record the checksum activity for %s", resource_id)
         return "clean"
     if status == "FOUND":
         _quarantine(s3, key, res, signature)

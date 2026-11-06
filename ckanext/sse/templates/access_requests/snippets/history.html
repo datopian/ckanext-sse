@@ -1,0 +1,88 @@
+{#
+  Access request history for the dashboard: when each step happened and who
+  took it. Import with context: {% import '...' as history with context %}
+#}
+
+{% macro label(action) -%}
+  {%- if action == 'created' -%}{{ _('Requested') }}
+  {%- elif action == 'approved' -%}{{ _('Approved') }}
+  {%- elif action == 'rejected' -%}{{ _('Rejected') }}
+  {%- elif action == 'revoked' -%}{{ _('Revoked') }}
+  {%- else -%}{{ action }}{%- endif -%}
+{%- endmacro %}
+
+{% macro when(value) -%}
+  {%- if value -%}
+    {{ h.render_datetime(value, with_hours=True, with_seconds=True) }} UTC
+  {%- else -%}
+    <span class="text-muted">{{ _('Not recorded') }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro user_link(user) -%}
+  {%- if user -%}
+    <a href="{{ h.url_for('user.read', id=user.name) }}">{{ user.name }}</a>
+  {%- else -%}
+    <span class="text-muted">{{ _('Unknown') }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro toggle(item, tab) -%}
+  <button
+    type="button"
+    class="btn btn-link btn-sm p-0"
+    data-bs-toggle="collapse"
+    data-bs-target="#history-{{ tab }}-{{ item.id }}"
+    aria-expanded="false"
+    aria-controls="history-{{ tab }}-{{ item.id }}"
+  >
+    {{ _('History') }}
+  </button>
+{%- endmacro %}
+
+{# Two cells: when it was requested, and the latest decision with its time and actor. #}
+{% macro date_cells(item) -%}
+  <td>{{ when(item.created_at) }}</td>
+  <td>
+    {% set decision = item.last_decision %}
+    {% if decision %}
+      {{ label(decision.action) }}<br />
+      <small>{{ when(decision.created_at) }}</small><br />
+      <small>{{ _('by') }} {{ user_link(decision.actor) }}</small>
+    {% endif %}
+  </td>
+{%- endmacro %}
+
+{% macro timeline(item, tab) -%}
+  <tr class="collapse" id="history-{{ tab }}-{{ item.id }}">
+    <td colspan="12">
+      <table class="table table-sm mb-1">
+        <thead>
+          <tr>
+            <th>{{ _('Time') }}</th>
+            <th>{{ _('Event') }}</th>
+            <th>{{ _('By') }}</th>
+            <th>{{ _('Message or reason') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in item.events %}
+          <tr>
+            <td>{{ when(event.created_at) }}</td>
+            <td>{{ label(event.action) }}</td>
+            <td>{{ user_link(event.actor) }}</td>
+            <td>{{ event.reason or '' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-muted">{{ _('No history recorded.') }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if item.events | selectattr('backfilled') | list %}
+      <small class="text-muted">
+        {{ _('This request was made before history was kept: only its current state could be recorded, and earlier decisions on it were not stored.') }}
+      </small>
+      {% endif %}
+    </td>
+  </tr>
+{%- endmacro %}

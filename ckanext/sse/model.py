@@ -2,7 +2,7 @@ from datetime import datetime, date
 from collections import OrderedDict
 
 from sqlalchemy import (
-    orm, Column, String, Text, DateTime, ForeignKey, Enum, Index,
+    orm, Column, String, Text, DateTime, ForeignKey, Enum, Index, Boolean,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Unicode
@@ -48,9 +48,40 @@ class PackageAccessRequest(Base):
     approved_or_rejected_by_user = relationship(
         User, foreign_keys=[approved_or_rejected_by_user_id]
     )
+    history_rows = relationship(
+        "PackageAccessRequestEvent", back_populates="request",
+    )
 
     def __repr__(self):
         return f"<PackageAccessRequest {self.id}>"
+
+    @property
+    def events(self):
+        """History, oldest first.
+
+        A backfilled decision has no time; it happened after the request was
+        made and before anything recorded since, so it sorts at the request's
+        own time, after the ``created`` event.
+        """
+        return sorted(
+            self.history_rows,
+            key=lambda e: (
+                e.created_at or self.created_at or datetime.min,
+                e.action != "created",
+            ),
+        )
+
+    @property
+    def last_decision(self):
+        """Latest approve/reject/revoke event, or None while pending."""
+        decisions = [e for e in self.events if e.action != "created"]
+        return decisions[-1] if decisions else None
+
+    @property
+    def last_event_at(self):
+        """For sorting: newest event time, falling back to the request time."""
+        times = [e.created_at for e in self.events if e.created_at]
+        return max(times + [self.created_at]) if self.created_at else None
 
     @classmethod
     def create(cls, package_id, user_id, org_id, message):
@@ -71,6 +102,8 @@ class PackageAccessRequest(Base):
             status="pending",
         )
         Session.add(request)
+        Session.flush()
+        PackageAccessRequestEvent.add(request, "created", user_id, message)
         Session.commit()
         return request
 
@@ -82,7 +115,7 @@ class PackageAccessRequest(Base):
     @classmethod
     def get_all(cls):
         """Get all the PackageAccessRequest"""
-        return Session.query(cls).all()
+        return Session.query(cls).options(*cls._dashboard_loads()).all()
 
     @classmethod
     def get_by_package(cls, package_id):
@@ -111,11 +144,27 @@ class PackageAccessRequest(Base):
     @classmethod
     def get_by_orgs(cls, org_ids):
         """Get all PackageAccessRequests from a user"""
-        return Session.query(cls).filter(PackageAccessRequest.org_id.in_(org_ids)).all()
+        return (
+            Session.query(cls)
+            .options(*cls._dashboard_loads())
+            .filter(PackageAccessRequest.org_id.in_(org_ids))
+            .all()
+        )
+
+    @classmethod
+    def _dashboard_loads(cls):
+        """Load the history and its actors with the list: no query per row."""
+        return (
+            orm.selectinload(cls.history_rows).joinedload(
+                PackageAccessRequestEvent.actor),
+        )
 
     @classmethod
     def delete(cls, request_id):
-        """Delete a PackageAccessRequest by ID"""
+        """Delete a PackageAccessRequest by ID.
+
+        Unused. Would fail while history events reference the request.
+        """
         request = cls.get(request_id)
         if request:
             Session.delete(request)
@@ -125,7 +174,10 @@ class PackageAccessRequest(Base):
 
     @classmethod
     def update_message(cls, request_id, new_message):
-        """Update a PackageAccessRequest's message"""
+        """Update a PackageAccessRequest's message.
+
+        Unused. Records no history event: add one if this is ever wired up.
+        """
         request = cls.get(request_id)
         if request:
             request.message = new_message
@@ -147,9 +199,80 @@ class PackageAccessRequest(Base):
             request.status = new_status
             request.rejection_message = rejection_message
             request.approved_or_rejected_by_user_id = approved_or_rejected_by_user_id
+            PackageAccessRequestEvent.add(
+                request, new_status, approved_or_rejected_by_user_id,
+                rejection_message,
+            )
             Session.commit()
             return request
         return None
+
+
+class PackageAccessRequestEvent(Base):
+    """Append-only history of an access request: one row per step.
+
+    The request row only holds the current state, so without this an approval
+    followed by a revocation would leave no trace of who approved, or when.
+    """
+
+    __tablename__ = "package_access_request_event"
+
+    id = Column(String(60), primary_key=True, default=make_uuid)
+    request_id = Column(
+        String(60), ForeignKey("package_access_request.id"),
+        nullable=False, index=True,
+    )
+    # created, approved, rejected, revoked
+    action = Column(String(20), nullable=False)
+    actor_user_id = Column(String(60), ForeignKey("user.id"))
+    # The requester's message on created, the admin's reason otherwise.
+    reason = Column(Text)
+    # Null only for decisions reconstructed from requests made before history
+    # was kept, whose time was never stored.
+    # No column default: it would also fill the null of a backfilled decision.
+    created_at = Column(DateTime)
+    backfilled = Column(Boolean, nullable=False, default=False)
+
+    request = relationship(PackageAccessRequest, back_populates="history_rows")
+    actor = relationship(User, foreign_keys=[actor_user_id])
+
+    @classmethod
+    def add(cls, request, action, actor_user_id, reason=None):
+        """Stage an event in the caller's transaction; the caller commits."""
+        event = cls(
+            request_id=request.id, action=action,
+            actor_user_id=actor_user_id, reason=reason,
+            created_at=datetime.utcnow(),
+        )
+        Session.add(event)
+        return event
+
+    @classmethod
+    def backfill(cls):
+        """Seed history for requests that predate it. Safe to re-run.
+
+        Each gets its ``created`` event and, if decided, one event for its
+        current state. Earlier decisions were overwritten and are lost.
+        """
+        seeded = 0
+        has_events = Session.query(cls.request_id).distinct()
+        for request in Session.query(PackageAccessRequest).filter(
+                ~PackageAccessRequest.id.in_(has_events)):
+            Session.add(cls(
+                request_id=request.id, action="created",
+                actor_user_id=request.user_id, reason=request.message,
+                created_at=request.created_at, backfilled=True,
+            ))
+            if request.status != "pending":
+                Session.add(cls(
+                    request_id=request.id, action=request.status,
+                    actor_user_id=request.approved_or_rejected_by_user_id,
+                    reason=request.rejection_message,
+                    created_at=None, backfilled=True,
+                ))
+            seeded += 1
+        Session.commit()
+        return seeded
 
 
 class UserPasswordHistory(tk.BaseModel):

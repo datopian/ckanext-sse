@@ -11,7 +11,10 @@ from ckanext.sse import password_policy, login_throttle, account_lifecycle
 from ckanext.sse import scim, mail_suppression
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
-from .model import PackageAccessRequest, FormResponse, UserPasswordHistory
+from .model import (
+    PackageAccessRequest, PackageAccessRequestEvent, FormResponse,
+    UserPasswordHistory,
+)
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
     is_org_admin_by_package_id,
@@ -76,6 +79,10 @@ class SsePlugin(plugins.SingletonPlugin):
         from ckan.model import meta
         if not PackageAccessRequest.__table__.exists(meta.engine):
             PackageAccessRequest.__table__.create(meta.engine)
+        if not PackageAccessRequestEvent.__table__.exists(meta.engine):
+            PackageAccessRequestEvent.__table__.create(meta.engine)
+            # Requests made before history was kept get their current state.
+            PackageAccessRequestEvent.backfill()
         if not FormResponse.__table__.exists(meta.engine):
             FormResponse.__table__.create(meta.engine)
         if not UserPasswordHistory.__table__.exists(meta.engine):

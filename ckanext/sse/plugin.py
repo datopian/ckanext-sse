@@ -7,7 +7,7 @@ import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action, auth
 from ckanext.sse import cli, upload_security, upload_scan, session_policy, token_scope
-from ckanext.sse import password_policy, login_throttle, account_lifecycle
+from ckanext.sse import password_policy, login_throttle, account_lifecycle, file_history
 from ckanext.sse import scim, mail_suppression
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
@@ -97,6 +97,7 @@ class SsePlugin(plugins.SingletonPlugin):
         'is_admin_of_any_org': is_admin_of_any_org,
         'get_data_reuse_field_labels': get_data_reuse_field_labels,
         'sse_password_policy_rules': password_policy.policy_rules,
+        'sse_resource_file_history': file_history.resource_file_history,
         }
 
     # IPermissionLabels

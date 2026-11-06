@@ -13,6 +13,7 @@ from ckanext.scheming.helpers import (
 from sqlalchemy import func
 from ckanext.sse.password_policy import generate_password
 from .model import PackageAccessRequest, FormResponse
+from .audit import emit_access_request
 from .schemas import package_request_access_schema, data_reuse_schema
 import os
 from ckanext.sse.logic import (
@@ -240,11 +241,18 @@ def request_access_to_dataset(context, data_dict):
             "errors": {"validation": [_("Request already created for this resource")]},
         }
 
-    PackageAccessRequest.create(
+    access_request = PackageAccessRequest.create(
         package_id=pkg.get("id"),
         user_id=user.get("id"),
         org_id=pkg.get("organization").get("id"),
         message=data_dict.get("message"),
+    )
+    emit_access_request(
+        "created",
+        "success",
+        request_id=access_request.id,
+        package_id=pkg.get("id"),
+        requester_id=user.get("id"),
     )
 
     site_title = os.environ.get("CKAN_FRONTEND_SITE_TITLE")

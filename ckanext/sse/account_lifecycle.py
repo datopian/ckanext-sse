@@ -564,6 +564,10 @@ def reactivate(name):
         user_id=user.id,
         message="Account {} reactivated".format(user.name),
         reason="admin_reactivation",
+        reactivated_by=(
+            getattr(toolkit.current_user, "name", None)
+            if has_request_context() else None
+        ),
     )
     return user
 

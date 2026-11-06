@@ -56,6 +56,17 @@ on restricted data can be filtered without a join against CKAN, and an
 ``access_context`` of ``download``, ``preview`` or ``api`` so the reads behind
 an ordinary page view on the portal are not mistaken for exports.
 
+Access to restricted data and the administration of the platform are covered
+by two more:
+
+* ``access_request`` -- a data access request being made, approved, rejected
+  or revoked, emitted by the code that does each (``emit_access_request``),
+  with the requester, the acting admin, the dataset and any reason given.
+* ``admin_action`` -- any of ``ADMIN_ACTIONS`` completing, from CKAN's
+  ``action_succeeded`` signal. That fires for every ``get_action`` call, so
+  the web UI is covered as well as the API. Only successes are seen there;
+  a refused API call is still on its ``api_request`` event.
+
 Nothing derived from a request body is logged verbatim. Parameters are
 redacted by key name and size-capped before they are serialised -- see
 ``_audit_params()`` for why both are load-bearing.
@@ -174,6 +185,28 @@ SQL_RESOURCE_TABLE = re.compile(
 
 DATASTORE_DUMP_ENDPOINT = "datastore.dump"
 
+# Actions that change who can do what, or the platform itself.
+# ``organization_member_*`` call ``member_*`` internally, so one change through
+# them shows as both; the outer name says how it was made. ``user_patch`` is
+# left out because it always goes through ``user_update``.
+ADMIN_ACTIONS = frozenset({
+    "member_create", "member_delete",
+    "organization_member_create", "organization_member_delete",
+    "group_member_create", "group_member_delete",
+    "package_collaborator_create", "package_collaborator_delete",
+    "user_create", "user_update", "user_delete",
+    "organization_create", "organization_delete", "organization_purge",
+    "group_create", "group_delete", "group_purge",
+    "dataset_purge", "config_option_update",
+})
+
+# Parameters whose values are logged; for everything else only the name is.
+# Profile fields, passwords and free text stay out of the audit trail.
+ADMIN_ACTION_VALUE_KEYS = frozenset({
+    "id", "name", "username", "user_id", "user", "object", "object_type",
+    "capacity", "role", "state", "sysadmin", "type",
+})
+
 
 def get_subscriptions():
     return {
@@ -182,6 +215,9 @@ def get_subscriptions():
         toolkit.signals.request_finished: [on_request_finished],
         toolkit.signals.action_succeeded: [
             {"sender": "api_token_revoke", "receiver": on_api_token_revoked},
+        ] + [
+            {"sender": name, "receiver": on_admin_action}
+            for name in sorted(ADMIN_ACTIONS)
         ],
     }
 
@@ -230,6 +266,124 @@ def on_api_token_revoked(sender, **kwargs):
         message="API token {} revoked".format(jti or "(identified by value)"),
         token_id=jti,
         revoked_by="jti" if jti else "token_value",
+    )
+
+
+def _actor(context=None):
+    """Who is acting: the signed-in user, else whoever the context names.
+
+    The context alone is not enough: approvals call ``package_collaborator_*``
+    with ``ignore_auth`` and no user, while the admin who clicked is the one
+    signed in.
+    """
+    if has_request_context():
+        user = toolkit.current_user
+        if user and not _safe_attr(user, "is_anonymous"):
+            return _safe_attr(user, "name"), _safe_attr(user, "id")
+    name = (context or {}).get("user") or None
+    return name, _safe_attr((context or {}).get("auth_user_obj"), "id")
+
+
+def emit_access_request(request_action, status, request_id=None,
+                        package_id=None, requester_id=None, reason=None,
+                        **extra):
+    """One event per step of a data access request.
+
+    ``request_action`` is ``created``, ``approved``, ``rejected`` or
+    ``revoked``. ``user_name`` is whoever acted -- the requester for
+    ``created``, the admin otherwise -- and the requester is always named
+    separately.
+    """
+    try:
+        actor_name, actor_id = _actor()
+        requester_name = None
+        if requester_id:
+            from ckan import model
+
+            requester_name = _safe_attr(model.User.get(requester_id), "name")
+        scope = {}
+        if package_id:
+            from ckan import model
+
+            package = model.Package.get(package_id)
+            if package is not None:
+                owner = (
+                    model.Group.get(package.owner_org)
+                    if package.owner_org else None
+                )
+                scope = {
+                    "dataset_id": package.id,
+                    "dataset_name": package.name,
+                    "organization": _safe_attr(owner, "name"),
+                    "dataset_private": bool(package.private),
+                }
+        emit_audit_log(
+            action="access_request",
+            status=status,
+            user_name=actor_name,
+            user_id=actor_id,
+            message="Access request {} {} for {} on {}".format(
+                request_id or "", request_action, requester_name or requester_id,
+                scope.get("dataset_name") or package_id,
+            ),
+            request_action=request_action,
+            request_id=request_id,
+            requester_name=requester_name,
+            requester_id=requester_id,
+            reason=_trim_value(reason) if reason else None,
+            **dict(scope, **extra)
+        )
+    except Exception:
+        log.exception("Failed to emit access request audit log")
+
+
+def on_admin_action(sender, **kwargs):
+    """CKAN ``action_succeeded`` for one of ``ADMIN_ACTIONS``."""
+    try:
+        _log_admin_action(sender, kwargs)
+    except Exception:
+        log.exception("Failed to emit admin action audit log for %s", sender)
+
+
+def _log_admin_action(action_name, kwargs):
+    context = kwargs.get("context") or {}
+    data_dict = kwargs.get("data_dict") or {}
+    result = kwargs.get("result")
+    actor_name, actor_id = _actor(context)
+
+    target_user = None
+    if action_name in ("user_create", "user_update"):
+        target_user = (result or {}).get("name") if isinstance(result, dict) \
+            else None
+        # Registering yourself or editing your own profile is not an
+        # administrative action.
+        if not actor_name or target_user == actor_name:
+            return
+
+    params = {}
+    for key, value in data_dict.items():
+        if key in ADMIN_ACTION_VALUE_KEYS and isinstance(
+            value, (str, int, float, bool, type(None))
+        ):
+            params[key] = _trim_value(value)
+        else:
+            params[key] = "<not logged>"
+    # The verified-user toggle (Smart Meter API allowlist) lives here.
+    ssen_extras = (data_dict.get("plugin_extras") or {}).get("ssen")
+    if isinstance(ssen_extras, dict) and "is_verified_user" in ssen_extras:
+        params["is_verified_user"] = ssen_extras["is_verified_user"]
+
+    emit_audit_log(
+        action="admin_action",
+        status="success",
+        user_name=actor_name,
+        user_id=actor_id,
+        message="{} by {}".format(action_name, actor_name or "system"),
+        admin_action=action_name,
+        target_user=target_user,
+        params=params,
+        result_id=result.get("id") if isinstance(result, dict) else None,
+        ignore_auth=bool(context.get("ignore_auth")),
     )
 
 

@@ -9,6 +9,7 @@ from ckan.types import Context
 from flask import Blueprint
 
 from ckanext.sse import account_lifecycle, password_policy
+from ckanext.sse.audit import emit_audit_log
 
 blueprint = Blueprint("ssen-admin", __name__, url_prefix="/ckan-admin")
 
@@ -132,6 +133,16 @@ def force_expire_password():
         return denied
     username = request.form.get("username")
     user = password_policy.force_expire(username)
+    emit_audit_log(
+        action="admin_action",
+        status="success" if user is not None else "failure",
+        user_name=current_user.name,
+        user_id=current_user.id,
+        message="Password expiry forced for {} by {}".format(
+            username, current_user.name),
+        admin_action="force_password_expiry",
+        target_user=username,
+    )
     if user is None:
         h.flash_error(
             _("No local password to expire for {} (an SSO-only account has "

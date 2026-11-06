@@ -7,6 +7,7 @@ from ckan.common import _
 from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
 from ckanext.sse import model as custom_model
 from ckanext.sse.logic import mail_rejected_user
+from ckanext.sse.audit import emit_access_request
 from ckanext.s3filestore.views.resource import resource_download
 
 import os
@@ -112,6 +113,11 @@ def update_request_status():
         return redirect(url_for('access_requests.access_requests_dashboard'))
 
     if not is_org_admin_by_package_id(request_obj.package_id):
+        emit_access_request(
+            action or "unknown", "failure", request_id=request_id,
+            package_id=request_obj.package_id,
+            requester_id=request_obj.user_id, reason="not an admin of the dataset's organisation",
+        )
         flash(_("You do not have access to this package."),
               category='alert-danger')
         return redirect(url_for('access_requests.access_requests_dashboard'))
@@ -131,6 +137,11 @@ def update_request_status():
 
     custom_model.PackageAccessRequest.update_status(
         request_id, new_status, rejection_message, approved_or_rejected_by_user_id
+    )
+    emit_access_request(
+        new_status, "success", request_id=request_id,
+        package_id=request_obj.package_id, requester_id=request_obj.user_id,
+        reason=rejection_message,
     )
 
     pkg = toolkit.get_action('package_show')({'ignore_auth': True}, {

@@ -6,6 +6,7 @@ from ckan.tests import factories, helpers
 
 from ckanext.sse import action as sse_action
 from ckanext.sse import file_history
+from ckanext.sse import upload_security as us
 from ckanext.sse.utils import update_resource_extra
 
 pytestmark = [
@@ -21,10 +22,14 @@ def no_schema(monkeypatch):
 
 
 def replace(user, resource_id, filename, sha256=None):
+    """Save a new file on the resource. The stash marks the save as an upload,
+    as the upload hook does; without it the stored checksum is kept."""
     data = {"id": resource_id, "url": filename, "url_type": "upload"}
+    context = {"user": user["name"]}
     if sha256 is not None:
         data["sha256"] = sha256
-    helpers.call_action("resource_patch", {"user": user["name"]}, **data)
+        context[us._STASH_KEY] = sha256
+    helpers.call_action("resource_patch", context, **data)
 
 
 def test_each_file_is_listed_once_newest_first_with_its_checksum():
@@ -73,3 +78,25 @@ def test_private_datasets_get_no_extra_activity():
     org = factories.Organization()
     dataset = factories.Dataset(owner_org=org["id"], private=True)
     assert file_history.record_checksum_activity(dataset["id"]) is None
+
+
+def test_a_stale_save_does_not_undo_the_checksum_written_by_the_scan():
+    user = factories.Sysadmin(password="Tr0mb0ne-Yak!79-quartz")
+    dataset = factories.Dataset(user=user)
+    resource = factories.Resource(
+        package_id=dataset["id"], url="data.csv", url_type="upload",
+        sha256="aaa", user=user,
+    )
+    replace(user, resource["id"], "new.csv", "")
+    # DataPusher reads the resource while the checksum is still pending...
+    stale = helpers.call_action("resource_show", id=resource["id"])
+    # ...the scan job (another worker) records the verdict and checksum...
+    update_resource_extra(resource["id"], "sha256", "ccc")
+    update_resource_extra(resource["id"], "scan_status", "clean")
+    # ...and DataPusher writes its copy back.
+    stale.update(scan_status="pending", datastore_active=True)
+    helpers.call_action("resource_update", {"user": user["name"]}, **stale)
+
+    saved = helpers.call_action("resource_show", id=resource["id"])
+    assert (saved["sha256"], saved["scan_status"]) == ("ccc", "clean")
+    assert saved["datastore_active"] is True

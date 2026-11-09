@@ -25,6 +25,7 @@ records its SHA-256 on the way, since nothing hashed it at upload time.
 import datetime
 import hashlib
 import logging
+import os
 
 import ckan.model as model
 import ckan.plugins as plugins
@@ -93,12 +94,16 @@ def before_change(context, resource):
 
     Runs after ``upload_security``'s before-hook, whose stash marks an upload
     (or after s3filestore's, for a file that went straight to the bucket).
-    Written together with the file rather than afterwards, so a client that
-    reads the resource and writes it back (DataPusher) carries these values
-    instead of undoing them. A synchronous scan that fails aborts the save, so
-    ``clean`` is only ever stored for a file that passed.
+    A synchronous scan that fails aborts the save, so ``clean`` is only ever
+    stored for a file that passed.
+
+    A save without a new file keeps the stored scan result and checksum,
+    whatever the dict says: the scan job writes them straight to the row, and a
+    client that read the resource before that (DataPusher, from another worker)
+    would otherwise write its stale copy back.
     """
     if not (context.get(us._STASH_KEY) or context.get(DIRECT_KEY)):
+        _keep_stored_fields(resource)
         return
     resource.pop(SIGNATURE_FIELD, None)
     if deferred(context):
@@ -107,6 +112,33 @@ def before_change(context, resource):
     else:
         resource[STATUS_FIELD] = "clean"
         resource[SCANNED_AT_FIELD] = _now()
+
+
+_PROTECTED_FIELDS = (STATUS_FIELD, SCANNED_AT_FIELD, SIGNATURE_FIELD, us.CHECKSUM_FIELD)
+
+
+def _stored_resource(resource_id):
+    return model.Resource.get(resource_id) if resource_id else None
+
+
+def _same_file(resource, stored):
+    """Whether the dict still points at the stored file (dicts carry the full
+    download URL, the row only the filename)."""
+    return (stored.url_type == "upload"
+            and resource.get("url_type", stored.url_type) == "upload"
+            and os.path.basename(resource.get("url") or "") == os.path.basename(stored.url or ""))
+
+
+def _keep_stored_fields(resource):
+    stored = _stored_resource(resource.get("id"))
+    if stored is None:
+        return
+    extras = dict(stored.extras or {}) if _same_file(resource, stored) else {}
+    for field in _PROTECTED_FIELDS:
+        if field in extras:
+            resource[field] = extras[field]
+        else:
+            resource.pop(field, None)
 
 
 def after_change(context, resource):

@@ -131,11 +131,66 @@ def test_synchronously_scanned_upload_is_marked_clean(test_request_context):
     assert "scan_signature" not in resource
 
 
-def test_metadata_only_update_keeps_scan_fields(test_request_context):
-    resource = {"scan_status": "clean", "scanned_at": "earlier"}
+@pytest.fixture
+def saved(monkeypatch):
+    """The resource row as stored, which the scan job may have updated."""
+    row = SimpleNamespace(url="data.csv", url_type="upload", extras={})
+    monkeypatch.setattr(scan, "_stored_resource", lambda rid: row if rid == RID else None)
+    return row
+
+
+def _stale(**fields):
+    # what a client that read the resource earlier sends back, without a file
+    return dict({"id": RID, "url_type": "upload",
+                 "url": "https://ckan.example/dataset/d/resource/{}/download/data.csv".format(RID)},
+                **fields)
+
+
+def test_metadata_only_update_keeps_scan_fields(test_request_context, saved):
+    saved.extras = {"scan_status": "clean", "scanned_at": "earlier", "sha256": DATA_SHA}
+    resource = _stale(scan_status="clean", scanned_at="earlier", sha256=DATA_SHA)
     with test_request_context("/api/3/action/resource_patch", method="POST"):
         scan.before_change({}, resource)
-    assert resource == {"scan_status": "clean", "scanned_at": "earlier"}
+    assert resource == _stale(scan_status="clean", scanned_at="earlier", sha256=DATA_SHA)
+
+
+def test_stale_save_does_not_undo_the_scan_result(saved):
+    # DataPusher read the resource while the scan was pending, the scan job
+    # (on another worker) then stored the verdict and checksum
+    saved.extras = {"scan_status": "clean", "scanned_at": "later", "sha256": DATA_SHA}
+    resource = _stale(scan_status="pending", sha256="", datastore_active=True)
+    scan.before_change({}, resource)
+    assert resource == _stale(scan_status="clean", scanned_at="later", sha256=DATA_SHA,
+                              datastore_active=True)
+
+
+def test_stale_save_does_not_undo_a_detection(saved):
+    saved.extras = {"scan_status": "infected", "scan_signature": "Eicar-Signature",
+                    "scanned_at": "later"}
+    resource = _stale(scan_status="pending", sha256=DATA_SHA)
+    scan.before_change({}, resource)
+    assert resource == _stale(scan_status="infected", scan_signature="Eicar-Signature",
+                              scanned_at="later")
+
+
+def test_scan_fields_cannot_be_set_without_a_file(saved):
+    resource = _stale(scan_status="clean", sha256=DATA_SHA)
+    scan.before_change({}, resource)
+    assert resource == _stale()
+
+
+def test_switching_to_a_link_drops_the_old_files_scan_fields(saved):
+    saved.extras = {"scan_status": "clean", "scanned_at": "earlier", "sha256": DATA_SHA}
+    resource = {"id": RID, "url_type": "", "url": "https://example.org/x.csv",
+                "scan_status": "clean", "sha256": DATA_SHA}
+    scan.before_change({}, resource)
+    assert resource == {"id": RID, "url_type": "", "url": "https://example.org/x.csv"}
+
+
+def test_new_resource_without_a_file_is_left_alone(saved):
+    resource = {"url": "https://example.org/x.csv", "name": "link"}
+    scan.before_change({}, resource)
+    assert resource == {"url": "https://example.org/x.csv", "name": "link"}
 
 
 def test_api_upload_is_queued_without_a_separate_write(test_request_context, extras, queue):

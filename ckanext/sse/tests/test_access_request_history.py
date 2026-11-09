@@ -1,5 +1,8 @@
 """Access request history: every step kept with its time, actor and reason."""
 
+from datetime import date, datetime, timedelta
+from urllib.parse import urlsplit
+
 import pytest
 
 from ckan import model
@@ -155,23 +158,132 @@ def test_backfill_seeds_requests_made_before_history(scene):
     assert len(history(rejected.id)) == 2
 
 
-def test_dashboard_shows_times_and_actors(app, scene, monkeypatch):
+@pytest.fixture
+def no_nav(app, monkeypatch):
     from ckan.lib import helpers
 
     # The SSE header links to plugins not loaded here (user groups, showcases).
+    # Patched after the app is built, which reloads the helpers.
     monkeypatch.setitem(
         helpers.helper_functions, "build_nav_main", lambda *a, **k: ""
     )
+
+
+def dashboard_page(app, user, query=""):
+    return app.get(
+        "/access_requests" + query, headers={"Authorization": token_for(user)}
+    ).body
+
+
+@pytest.mark.usefixtures("no_nav")
+def test_dashboard_lists_by_status_with_the_last_decision(app, scene):
     admin, _, dataset, requester = scene
     request_id = request_access(app, dataset, requester)
     decide(app, admin, request_id, "approve")
     decide(app, admin, request_id, "revoke", "study finished")
 
-    page = app.get(
-        "/access_requests", headers={"Authorization": token_for(admin)}
+    pending = dashboard_page(app, admin)
+    assert request_id not in pending
+    revoked = dashboard_page(app, admin, "?status=revoked")
+    assert "/access_requests/{}/history".format(request_id) in revoked
+    assert "Revoked by" in revoked and ">{}</a>".format(admin["name"]) in revoked
+    assert "UTC UTC" not in revoked
+
+
+@pytest.mark.usefixtures("no_nav")
+def test_history_endpoint_shows_every_step(app, scene):
+    admin, _, dataset, requester = scene
+    request_id = request_access(app, dataset, requester, "for a study")
+    decide(app, admin, request_id, "approve")
+    decide(app, admin, request_id, "revoke", "study finished")
+
+    body = app.get(
+        "/access_requests/{}/history".format(request_id),
+        headers={"Authorization": token_for(admin)},
     ).body
-    assert "history-all-" + request_id in page
-    assert "Requested At" in page and "Last Decision" in page
-    assert "study finished" in page
-    assert page.count(">{}</a>".format(admin["name"])) >= 3
-    assert " UTC" in page
+    assert [label in body for label in ("Requested", "Approved", "Revoked")] == [True] * 3
+    assert "for a study" in body and "study finished" in body
+    assert body.count(">{}</a>".format(admin["name"])) == 2
+
+
+@pytest.mark.usefixtures("no_nav")
+def test_history_endpoint_is_for_admins_of_the_requests_organisation(app, scene):
+    _, _, dataset, requester = scene
+    request_id = request_access(app, dataset, requester)
+    outsider = factories.User(password=PASSWORD)
+    factories.Organization(users=[{"name": outsider["name"], "capacity": "admin"}])
+    url = "/access_requests/{}/history".format(request_id)
+
+    assert app.get(url, headers={"Authorization": token_for(outsider)}).status_code == 403
+    assert app.get(url, headers={"Authorization": token_for(requester)}).status_code == 403
+    sysadmin = factories.Sysadmin(password=PASSWORD)
+    assert app.get(url, headers={"Authorization": token_for(sysadmin)}).status_code == 200
+    assert app.get(
+        "/access_requests/missing/history",
+        headers={"Authorization": token_for(sysadmin)},
+    ).status_code == 404
+
+
+def test_search_filters_sorts_and_pages(app, scene):
+    admin, org, dataset, requester = scene
+    other = factories.User(password=PASSWORD, fullname="Zed Quill", email="zq@example.org")
+    second = factories.Dataset(owner_org=org["id"])
+    first = request_access(app, dataset, requester)
+    decide(app, admin, first, "reject", "no")
+    by_other = request_access(app, second, other)
+    newest = request_access(app, dataset, requester)
+    ten_days_ago = datetime.utcnow() - timedelta(days=10)
+    old = PackageAccessRequest.get(by_other)
+    old.created_at = ten_days_ago
+    for event in old.history_rows:
+        event.created_at = ten_days_ago
+    model.Session.commit()
+
+    def ids(**kw):
+        items, total, counts = PackageAccessRequest.search(org_ids=[org["id"]], **kw)
+        return [r.id for r in items], total, counts
+
+    found, total, counts = ids()
+    assert total == 3 and counts == {
+        "pending": 2, "approved": 0, "rejected": 1, "revoked": 0, "all": 3}
+    # Latest activity first: the backdated request comes last.
+    assert found[-1] == by_other
+    assert ids(status="rejected")[0] == [first]
+    assert ids(q="quill")[0] == [by_other]
+    assert ids(q="ZQ@EXAMPLE")[0] == [by_other]
+    assert ids(q="%")[0] == []
+    assert sorted(ids(package_id=dataset["id"])[0]) == sorted([first, newest])
+    today = date.today()
+    assert by_other not in ids(requested_from=today)[0]
+    assert ids(requested_to=today - timedelta(days=5))[0] == [by_other]
+    assert ids(sort="requested")[0][0] == newest
+
+    page_one, total, _ = ids(limit=2)
+    page_two, _, _ = ids(limit=2, offset=2)
+    assert total == 3 and len(page_one) == 2 and len(page_two) == 1
+    assert not set(page_one) & set(page_two)
+
+    outsider_org = factories.Organization()
+    assert PackageAccessRequest.search(org_ids=[outsider_org["id"]])[1] == 0
+    assert PackageAccessRequest.search(org_ids=None)[1] == 3
+
+
+@pytest.mark.parametrize("target, expected", [
+    ("/access_requests?status=all&page=2", "/access_requests?status=all&page=2"),
+    ("https://evil.example/access_requests", "/access_requests"),
+    ("//evil.example/access_requests", "/access_requests"),
+    ("/access_requests/..//evil.example", "/access_requests"),
+    ("", "/access_requests"),
+])
+def test_decisions_return_only_to_the_dashboard(app, scene, target, expected):
+    admin, _, dataset, requester = scene
+    request_id = request_access(app, dataset, requester)
+    resp = app.post(
+        "/access_requests/update_status",
+        data={"request_id": request_id, "action": "approve", "return_to": target},
+        headers={"Authorization": token_for(admin)},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    location = urlsplit(resp.headers["Location"])
+    assert location.path + ("?" + location.query if location.query else "") == expected

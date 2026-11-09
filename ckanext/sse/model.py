@@ -1,8 +1,9 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from collections import OrderedDict
 
 from sqlalchemy import (
     orm, Column, String, Text, DateTime, ForeignKey, Enum, Index, Boolean,
+    func, or_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Unicode
@@ -77,12 +78,6 @@ class PackageAccessRequest(Base):
         decisions = [e for e in self.events if e.action != "created"]
         return decisions[-1] if decisions else None
 
-    @property
-    def last_event_at(self):
-        """For sorting: newest event time, falling back to the request time."""
-        times = [e.created_at for e in self.events if e.created_at]
-        return max(times + [self.created_at]) if self.created_at else None
-
     @classmethod
     def create(cls, package_id, user_id, org_id, message):
         """
@@ -115,7 +110,7 @@ class PackageAccessRequest(Base):
     @classmethod
     def get_all(cls):
         """Get all the PackageAccessRequest"""
-        return Session.query(cls).options(*cls._dashboard_loads()).all()
+        return Session.query(cls).all()
 
     @classmethod
     def get_by_package(cls, package_id):
@@ -144,20 +139,96 @@ class PackageAccessRequest(Base):
     @classmethod
     def get_by_orgs(cls, org_ids):
         """Get all PackageAccessRequests from a user"""
-        return (
-            Session.query(cls)
-            .options(*cls._dashboard_loads())
-            .filter(PackageAccessRequest.org_id.in_(org_ids))
-            .all()
-        )
+        return Session.query(cls).filter(PackageAccessRequest.org_id.in_(org_ids)).all()
+
+    STATUSES = ("pending", "approved", "rejected", "revoked")
 
     @classmethod
-    def _dashboard_loads(cls):
-        """Load the history and its actors with the list: no query per row."""
-        return (
-            orm.selectinload(cls.history_rows).joinedload(
-                PackageAccessRequestEvent.actor),
+    def search(cls, org_ids=None, status=None, q=None, package_id=None,
+               org_id=None, requested_from=None, requested_to=None,
+               sort="activity", offset=0, limit=25):
+        """One page of requests for the dashboard, filtered and sorted in SQL.
+
+        ``org_ids``: organisations the viewer administers (None: all, for
+        sysadmins). ``q`` matches the requester's username, full name or
+        email. ``requested_from``/``requested_to`` are dates, both inclusive.
+        ``sort``: "activity" (latest event first) or "requested" (newest
+        request first).
+
+        Returns ``(items, total, status_counts)``; the counts apply every
+        filter except the status one.
+        """
+        last_event = (
+            Session.query(
+                PackageAccessRequestEvent.request_id.label("request_id"),
+                func.max(PackageAccessRequestEvent.created_at).label("at"),
+            )
+            .group_by(PackageAccessRequestEvent.request_id)
+            .subquery()
         )
+        activity = func.coalesce(last_event.c.at, cls.created_at)
+
+        query = Session.query(cls).outerjoin(
+            last_event, last_event.c.request_id == cls.id)
+        if org_ids is not None:
+            query = query.filter(cls.org_id.in_(org_ids))
+        if org_id:
+            query = query.filter(cls.org_id == org_id)
+        if package_id:
+            query = query.filter(cls.package_id == package_id)
+        if requested_from:
+            query = query.filter(cls.created_at >= requested_from)
+        if requested_to:
+            query = query.filter(cls.created_at < requested_to + timedelta(days=1))
+        if q:
+            like = "%{}%".format(
+                q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"))
+            query = query.join(User, User.id == cls.user_id).filter(or_(
+                User.name.ilike(like), User.fullname.ilike(like),
+                User.email.ilike(like),
+            ))
+
+        counts = dict(
+            query.with_entities(cls.status, func.count(cls.id))
+            .group_by(cls.status).all()
+        )
+        status_counts = {s: counts.get(s, 0) for s in cls.STATUSES}
+        status_counts["all"] = sum(counts.values())
+
+        if status in cls.STATUSES:
+            query = query.filter(cls.status == status)
+        total = query.count()
+        order = cls.created_at if sort == "requested" else activity
+        items = (
+            query.options(
+                orm.joinedload(cls.user), orm.joinedload(cls.package),
+                orm.joinedload(cls.organization),
+                orm.selectinload(cls.history_rows).joinedload(
+                    PackageAccessRequestEvent.actor),
+            )
+            .order_by(order.desc(), cls.id)
+            .offset(offset).limit(limit).all()
+        )
+        return items, total, status_counts
+
+    @classmethod
+    def filter_options(cls, org_ids=None):
+        """Datasets and organisations that have requests the viewer can see."""
+        query = Session.query(cls)
+        if org_ids is not None:
+            query = query.filter(cls.org_id.in_(org_ids))
+        packages = (
+            query.join(Package, Package.id == cls.package_id)
+            .with_entities(Package.id, Package.name, Package.title)
+            .distinct().all()
+        )
+        orgs = (
+            query.join(Group, Group.id == cls.org_id)
+            .with_entities(Group.id, Group.name, Group.title)
+            .distinct().all()
+        )
+        by_title = lambda row: (row.title or row.name).lower()
+        return sorted(packages, key=by_title), sorted(orgs, key=by_title)
 
     @classmethod
     def delete(cls, request_id):

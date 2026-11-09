@@ -3,7 +3,7 @@ from collections import OrderedDict
 
 from sqlalchemy import (
     orm, Column, String, Text, DateTime, ForeignKey, Enum, Index, Boolean,
-    func, or_,
+    func, or_, text, inspect as sa_inspect,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Unicode
@@ -37,6 +37,8 @@ class PackageAccessRequest(Base):
         nullable=False,
     )
     rejection_message = Column(Text)
+    # The organisation the requester said they represent, as typed in the form.
+    user_organization = Column(Text)
     approved_or_rejected_by_user_id = Column(String(60), ForeignKey("user.id"))
 
     package_id = Column(String(60), ForeignKey("package.id"), nullable=False)
@@ -79,7 +81,7 @@ class PackageAccessRequest(Base):
         return decisions[-1] if decisions else None
 
     @classmethod
-    def create(cls, package_id, user_id, org_id, message):
+    def create(cls, package_id, user_id, org_id, message, user_organization=None):
         """
         Create a new access request.
 
@@ -87,6 +89,7 @@ class PackageAccessRequest(Base):
         :param user_id: ID of the user making the request.
         :param org_id: ID of the organization related to the request.
         :param message: Message accompanying the request.
+        :param user_organization: Organisation the requester said they represent.
         :return: The created PackageAccessRequest object.
         """
         request = cls(
@@ -94,6 +97,7 @@ class PackageAccessRequest(Base):
             user_id=user_id,
             org_id=org_id,
             message=message,
+            user_organization=user_organization,
             status="pending",
         )
         Session.add(request)
@@ -101,6 +105,16 @@ class PackageAccessRequest(Base):
         PackageAccessRequestEvent.add(request, "created", user_id, message)
         Session.commit()
         return request
+
+    @classmethod
+    def add_missing_columns(cls, engine):
+        """Add columns introduced after the table was first created. Safe to re-run."""
+        existing = {c["name"] for c in sa_inspect(engine).get_columns(cls.__tablename__)}
+        if "user_organization" not in existing:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE package_access_request "
+                    "ADD COLUMN IF NOT EXISTS user_organization TEXT"))
 
     @classmethod
     def get(cls, request_id):
@@ -150,8 +164,8 @@ class PackageAccessRequest(Base):
         """One page of requests for the dashboard, filtered and sorted in SQL.
 
         ``org_ids``: organisations the viewer administers (None: all, for
-        sysadmins). ``q`` matches the requester's username, full name or
-        email. ``requested_from``/``requested_to`` are dates, both inclusive.
+        sysadmins). ``q`` matches the requester's username, full name,
+        email or stated organisation. ``requested_from``/``requested_to`` are dates, both inclusive.
         ``sort``: "activity" (latest event first) or "requested" (newest
         request first).
 
@@ -185,7 +199,7 @@ class PackageAccessRequest(Base):
                 q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"))
             query = query.join(User, User.id == cls.user_id).filter(or_(
                 User.name.ilike(like), User.fullname.ilike(like),
-                User.email.ilike(like),
+                User.email.ilike(like), cls.user_organization.ilike(like),
             ))
 
         counts = dict(

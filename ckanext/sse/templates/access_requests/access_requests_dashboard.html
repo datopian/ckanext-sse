@@ -55,7 +55,7 @@
         id="filter-q"
         name="q"
         value="{{ filters.q }}"
-        placeholder="{{ _('Username, name or email') }}"
+        placeholder="{{ _('Username, name, email or organisation') }}"
       />
     </div>
     <div class="col-md-3">
@@ -138,7 +138,10 @@
       <tbody>
         {% for item in requests %}
         <tr>
-          <td>{{ history.user_link(item.user) }}</td>
+          <td>
+            {{ history.user_link(item.user) }}
+            {% if item.user_organization %}<br /><small class="text-muted">{{ item.user_organization }}</small>{% endif %}
+          </td>
           <td>
             {{ history.dataset_link(item) }}<br />
             <small class="text-muted">{{ history.org_link(item) }}</small>

@@ -53,10 +53,13 @@ def scene():
     return org_admin, org, dataset, requester
 
 
-def request_access(app, dataset, requester, message="please"):
+def request_access(app, dataset, requester, message="please", organisation=None):
+    payload = {"package_id": dataset["id"], "message": message}
+    if organisation is not None:
+        payload["user_organization"] = organisation
     resp = app.post(
         "/api/3/action/request_access_to_dataset",
-        json={"package_id": dataset["id"], "message": message},
+        json=payload,
         headers={"Authorization": token_for(requester)},
     )
     assert resp.json.get("result", {}).get("success") is True, resp.json
@@ -287,3 +290,40 @@ def test_decisions_return_only_to_the_dashboard(app, scene, target, expected):
     assert resp.status_code == 302
     location = urlsplit(resp.headers["Location"])
     assert location.path + ("?" + location.query if location.query else "") == expected
+
+
+@pytest.mark.usefixtures("no_nav")
+def test_the_requesters_stated_organisation_is_kept_and_shown(app, scene):
+    admin, org, dataset, requester = scene
+    request_id = request_access(app, dataset, requester, organisation="  Okafor Energy Ltd ")
+    assert PackageAccessRequest.get(request_id).user_organization == "Okafor Energy Ltd"
+
+    body = app.get(
+        "/access_requests/{}/history".format(request_id),
+        headers={"Authorization": token_for(admin)},
+    ).body
+    assert "Okafor Energy Ltd" in body
+    assert "Okafor Energy Ltd" in dashboard_page(app, admin)
+    found, _, _ = PackageAccessRequest.search(org_ids=[org["id"]], q="okafor")
+    assert [r.id for r in found] == [request_id]
+
+
+def test_a_blank_organisation_is_not_recorded(app, scene):
+    _, _, dataset, requester = scene
+    request_id = request_access(app, dataset, requester, organisation="   ")
+    assert PackageAccessRequest.get(request_id).user_organization is None
+
+
+def test_the_organisation_column_is_added_to_an_existing_table(scene):
+    from sqlalchemy import inspect, text
+
+    engine = model.meta.engine
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE package_access_request DROP COLUMN user_organization"))
+    columns = lambda: {c["name"] for c in inspect(engine).get_columns("package_access_request")}
+    assert "user_organization" not in columns()
+
+    PackageAccessRequest.add_missing_columns(engine)
+    PackageAccessRequest.add_missing_columns(engine)
+    assert "user_organization" in columns()

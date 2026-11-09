@@ -79,6 +79,7 @@ class SsePlugin(plugins.SingletonPlugin):
         from ckan.model import meta
         if not PackageAccessRequest.__table__.exists(meta.engine):
             PackageAccessRequest.__table__.create(meta.engine)
+        PackageAccessRequest.add_missing_columns(meta.engine)
         if not PackageAccessRequestEvent.__table__.exists(meta.engine):
             PackageAccessRequestEvent.__table__.create(meta.engine)
             # Requests made before history was kept get their current state.

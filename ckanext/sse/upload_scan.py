@@ -118,7 +118,15 @@ _PROTECTED_FIELDS = (STATUS_FIELD, SCANNED_AT_FIELD, SIGNATURE_FIELD, us.CHECKSU
 
 
 def _stored_resource(resource_id):
-    return model.Resource.get(resource_id) if resource_id else None
+    """The saved row, locked until this save commits: a scan job finishing
+    meanwhile waits and writes its verdict after the save, not under it."""
+    if not resource_id:
+        return None
+    return (model.Session.query(model.Resource)
+            .filter(model.Resource.id == resource_id)
+            .with_for_update()
+            .populate_existing()
+            .one_or_none())
 
 
 def _same_file(resource, stored):

@@ -7,11 +7,14 @@ import ckan.plugins.toolkit as toolkit
 import logging
 from ckanext.sse import action, auth
 from ckanext.sse import cli, upload_security, upload_scan, session_policy, token_scope
-from ckanext.sse import password_policy, login_throttle, account_lifecycle
+from ckanext.sse import password_policy, login_throttle, account_lifecycle, file_history
 from ckanext.sse import scim, mail_suppression
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
-from .model import PackageAccessRequest, FormResponse, UserPasswordHistory
+from .model import (
+    PackageAccessRequest, PackageAccessRequestEvent, FormResponse,
+    UserPasswordHistory,
+)
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
     is_org_admin_by_package_id,
@@ -76,6 +79,11 @@ class SsePlugin(plugins.SingletonPlugin):
         from ckan.model import meta
         if not PackageAccessRequest.__table__.exists(meta.engine):
             PackageAccessRequest.__table__.create(meta.engine)
+        PackageAccessRequest.add_missing_columns(meta.engine)
+        if not PackageAccessRequestEvent.__table__.exists(meta.engine):
+            PackageAccessRequestEvent.__table__.create(meta.engine)
+            # Requests made before history was kept get their current state.
+            PackageAccessRequestEvent.backfill()
         if not FormResponse.__table__.exists(meta.engine):
             FormResponse.__table__.create(meta.engine)
         if not UserPasswordHistory.__table__.exists(meta.engine):
@@ -90,6 +98,7 @@ class SsePlugin(plugins.SingletonPlugin):
         'is_admin_of_any_org': is_admin_of_any_org,
         'get_data_reuse_field_labels': get_data_reuse_field_labels,
         'sse_password_policy_rules': password_policy.policy_rules,
+        'sse_resource_file_history': file_history.resource_file_history,
         }
 
     # IPermissionLabels

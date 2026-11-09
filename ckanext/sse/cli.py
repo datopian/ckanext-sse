@@ -16,6 +16,20 @@ def sse():
     pass
 
 
+@sse.group("access-requests")
+def access_requests():
+    """Data access request history."""
+
+
+@access_requests.command("backfill-history")
+def backfill_history():
+    """Seed history events for requests that have none (runs once on startup too)."""
+    from ckanext.sse.model import PackageAccessRequestEvent
+
+    n = PackageAccessRequestEvent.backfill()
+    click.secho("seeded history for {} request(s)".format(n), fg="green")
+
+
 @sse.group()
 def checksums():
     """SI-7 resource-file integrity checksums."""

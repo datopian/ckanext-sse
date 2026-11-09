@@ -1,0 +1,24 @@
+{# Body of the dashboard's history modal, fetched per request. #}
+{% import 'access_requests/snippets/history.html' as history with context %}
+<dl class="row mb-3">
+  <dt class="col-sm-3">{{ _('Request ID') }}</dt>
+  <dd class="col-sm-9"><code>{{ item.id }}</code></dd>
+  <dt class="col-sm-3">{{ _('Requested by') }}</dt>
+  <dd class="col-sm-9">
+    {{ history.user_link(item.user) }}
+    {% if item.user and item.user.fullname %}({{ item.user.fullname }}){% endif %}
+  </dd>
+  <dt class="col-sm-3">{{ _("Requester's organisation") }}</dt>
+  <dd class="col-sm-9">
+    {%- if item.user_organization -%}{{ item.user_organization }}
+    {%- else -%}<span class="text-muted">{{ _('Not recorded') }}</span>{%- endif -%}
+  </dd>
+  <dt class="col-sm-3">{{ _('Dataset') }}</dt>
+  <dd class="col-sm-9">{{ history.dataset_link(item) }}</dd>
+  <dt class="col-sm-3">{{ _("Dataset's organisation") }}</dt>
+  <dd class="col-sm-9">{{ history.org_link(item) }}</dd>
+  <dt class="col-sm-3">{{ _('Status') }}</dt>
+  <dd class="col-sm-9">{{ history.badge(item.status) }}</dd>
+</dl>
+<h6>{{ _('History') }}</h6>
+{{ history.timeline(item) }}

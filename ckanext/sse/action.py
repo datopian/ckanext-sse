@@ -246,6 +246,7 @@ def request_access_to_dataset(context, data_dict):
         user_id=user.get("id"),
         org_id=pkg.get("organization").get("id"),
         message=data_dict.get("message"),
+        user_organization=(data_dict.get("user_organization") or "").strip() or None,
     )
     emit_access_request(
         "created",

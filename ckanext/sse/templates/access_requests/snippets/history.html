@@ -1,0 +1,97 @@
+{#
+  Access request display helpers: when each step happened and who took it.
+  Import with context: {% import '...' as history with context %}
+#}
+
+{% macro label(action) -%}
+  {%- if action == 'created' -%}{{ _('Requested') }}
+  {%- elif action == 'pending' -%}{{ _('Pending') }}
+  {%- elif action == 'approved' -%}{{ _('Approved') }}
+  {%- elif action == 'rejected' -%}{{ _('Rejected') }}
+  {%- elif action == 'revoked' -%}{{ _('Revoked') }}
+  {%- else -%}{{ action }}{%- endif -%}
+{%- endmacro %}
+
+{% macro badge(status) -%}
+  {%- set colour = {
+    'pending': 'bg-warning text-dark',
+    'approved': 'bg-success',
+    'rejected': 'bg-danger',
+    'revoked': 'bg-secondary',
+  }.get(status, 'bg-light text-dark') -%}
+  <span class="badge {{ colour }}">{{ label(status) }}</span>
+{%- endmacro %}
+
+{# render_datetime already appends the time zone. #}
+{% macro when(value, seconds=False) -%}
+  {%- if value -%}
+    {{ h.render_datetime(value, with_hours=True, with_seconds=seconds) }}
+  {%- else -%}
+    <span class="text-muted">{{ _('Not recorded') }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro user_link(user) -%}
+  {%- if user -%}
+    <a href="{{ h.url_for('user.read', id=user.name) }}">{{ user.name }}</a>
+  {%- else -%}
+    <span class="text-muted">{{ _('Unknown') }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro dataset_link(item) -%}
+  {%- if item.package -%}
+    <a href="{{ h.url_for('dataset.read', id=item.package.name) }}">{{ item.package.title or item.package.name }}</a>
+  {%- else -%}
+    <span class="text-muted">{{ _('Dataset not found') }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro org_link(item) -%}
+  {%- if item.organization -%}
+    <a href="{{ h.url_for('organization.read', id=item.organization.name) }}">{{ item.organization.title or item.organization.name }}</a>
+  {%- else -%}
+    <span class="text-muted">{{ _('Organisation not found') }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{# The latest approve/reject/revoke: what, who and when. #}
+{% macro last_decision(item) -%}
+  {%- set decision = item.last_decision -%}
+  {%- if decision -%}
+    {{ label(decision.action) }} {{ _('by') }} {{ user_link(decision.actor) }}<br />
+    <small class="text-muted">{{ when(decision.created_at) }}</small>
+  {%- else -%}
+    <span class="text-muted">-</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro timeline(item) -%}
+  <table class="table table-sm mb-1">
+    <thead>
+      <tr>
+        <th>{{ _('Time') }}</th>
+        <th>{{ _('Event') }}</th>
+        <th>{{ _('By') }}</th>
+        <th>{{ _('Message or reason') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in item.events %}
+      <tr>
+        <td class="text-nowrap">{{ when(event.created_at, seconds=True) }}</td>
+        <td>{{ label(event.action) }}</td>
+        <td>{{ user_link(event.actor) }}</td>
+        <td>{{ event.reason or '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="text-muted">{{ _('No history recorded.') }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if item.events | selectattr('backfilled') | list %}
+  <small class="text-muted">
+    {{ _('This request was made before history was kept: only its current state could be recorded, and earlier decisions on it were not stored.') }}
+  </small>
+  {% endif %}
+{%- endmacro %}

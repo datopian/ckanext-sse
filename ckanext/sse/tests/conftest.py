@@ -14,11 +14,13 @@ from ckan.model.meta import engine
 from ckanext.sse.model import (
     FormResponse,
     PackageAccessRequest,
+    PackageAccessRequestEvent,
     UserPasswordHistory,
 )
 
 EXTENSION_TABLES = (
     PackageAccessRequest,
+    PackageAccessRequestEvent,
     FormResponse,
     UserPasswordHistory,
 )

@@ -108,6 +108,10 @@ def _enforce_direct(context):
 def _enforce_and_hash(context, resource):
     """Reject a disallowed upload; stash the SHA-256 of an allowed one."""
     if _enforce_direct(context):
+        # Unknown until the scan job hashes the object. Without this the
+        # saved dict, and the history snapshot of this change, would carry
+        # the previous file's checksum next to the new file.
+        resource[CHECKSUM_FIELD] = ""
         return
     upload = resource.get("upload")
     stream = _upload_stream(upload)

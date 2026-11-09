@@ -1,0 +1,43 @@
+{% ckan_extends %}
+
+{% block primary_content %}
+  {{ super() }}
+  {% if res and res.url_type == 'upload' %}
+    {% set file_history = h.sse_resource_file_history(pkg.id, res.id) %}
+    {% if file_history %}
+    <section class="module">
+      <div class="module-content">
+        <h2>{{ _('File history') }}</h2>
+        <p class="text-muted">
+          {{ _('Every file this resource has had. Replaced files are kept and can still be downloaded.') }}
+        </p>
+        <table class="table table-striped table-bordered table-condensed">
+          <thead>
+            <tr>
+              <th scope="col">{{ _('Uploaded') }}</th>
+              <th scope="col">{{ _('By') }}</th>
+              <th scope="col">{{ _('File') }}</th>
+              <th scope="col">{{ _('Size') }}</th>
+              <th scope="col">{{ _('SHA-256') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for file in file_history %}
+            <tr>
+              <td>{{ h.render_datetime(file.uploaded_at, with_hours=True, with_seconds=True) }} UTC</td>
+              <td>{{ file.uploaded_by or _('Unknown') }}</td>
+              <td>
+                <a href="{{ file.url }}">{{ file.filename }}</a>
+                {% if file.current %}<span class="badge bg-success">{{ _('Current') }}</span>{% endif %}
+              </td>
+              <td>{{ h.SI_number_span(file.size) if file.size else '' }}</td>
+              <td><code style="word-break: break-all">{{ file.sha256 or _('Pending') }}</code></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+  {% endif %}
+{% endblock %}

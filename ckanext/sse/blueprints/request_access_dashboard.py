@@ -1,3 +1,4 @@
+from datetime import datetime
 from logging import getLogger
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from ckan.plugins import toolkit
@@ -9,6 +10,7 @@ from ckanext.sse import model as custom_model
 from ckanext.sse.logic import mail_rejected_user
 from ckanext.sse.audit import emit_access_request
 from ckanext.s3filestore.views.resource import resource_download
+from ckan.lib.pagination import Page
 
 import os
 access_requests_blueprint = Blueprint('access_requests', __name__)
@@ -42,51 +44,127 @@ def custom_download(id, resource_id, filename):
     return resource_download(None, id, resource_id, filename)
 
 
+PAGE_SIZE = 25
+
+
+def _admin_org_ids(user_obj):
+    """Organisations the user administers; None for a sysadmin (all of them)."""
+    if user_obj.sysadmin:
+        return None
+    memberships = model.Session.query(model.Group.id).\
+        join(model.Member, model.Member.group_id == model.Group.id).\
+        filter(model.Member.table_name == 'user').\
+        filter(model.Member.table_id == user_obj.id).\
+        filter(model.Group.type == 'organization').\
+        filter(model.Member.state == 'active').\
+        filter(model.Member.capacity == 'admin').\
+        all()
+    return [m.id for m in memberships]
+
+
+def _date_arg(name):
+    try:
+        return datetime.strptime(request.args.get(name, ''), '%Y-%m-%d').date()
+    except ValueError:
+        return None
+
+
 @access_requests_blueprint.route('/access_requests')
 def access_requests_dashboard():
     """
     Dashboard to display and manage access requests for admins.
-    """
-    user_id = toolkit.c.userobj.id if toolkit.c.userobj else None
 
-    if not user_id:
+    Filters come from the query string, so a filtered view can be linked to:
+    status (default pending, "all" for every status), q (requester), dataset,
+    org, from/to (requested date, YYYY-MM-DD), sort (activity or requested)
+    and page.
+    """
+    user_obj = toolkit.c.userobj
+    if not user_obj:
         flash(_("You must be logged in to view access requests."),
               category='alert-danger')
         return redirect(url_for('user.login'))
 
-    is_sysadmin = toolkit.c.userobj.sysadmin
-    org_ids = []
-
-    if not is_sysadmin:
-        user_obj = model.User.get(toolkit.c.user)
-        org_memberships = model.Session.query(model.Group).\
-            outerjoin(model.Member, model.Member.group_id == model.Group.id). \
-            filter(model.Member.table_name == 'user').\
-            filter(model.Member.table_id == user_obj.id).\
-            filter(model.Group.type == 'organization').\
-            filter(model.Member.state == 'active').\
-            filter(model.Member.capacity == 'admin').\
-            all()
-        for membership in org_memberships:
-            org_ids.append(membership.id)
-
-    if not is_sysadmin and not org_ids:
+    org_ids = _admin_org_ids(user_obj)
+    if org_ids is not None and not org_ids:
         flash(_("You do not have permission to view access requests."),
               category='alert-danger')
-
         return redirect(url_for('home.index'))
 
-    requests = []
-    if is_sysadmin:
-        requests = custom_model.PackageAccessRequest.get_all()
-    else:
-        requests.extend(custom_model.PackageAccessRequest.get_by_orgs(
-            org_ids))
+    filters = {
+        'status': request.args.get('status') or 'pending',
+        'q': (request.args.get('q') or '').strip(),
+        'dataset': request.args.get('dataset') or '',
+        'org': request.args.get('org') or '',
+        'from': request.args.get('from') or '',
+        'to': request.args.get('to') or '',
+        'sort': 'requested' if request.args.get('sort') == 'requested' else 'activity',
+    }
+    try:
+        page_number = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page_number = 1
+
+    items, total, status_counts = custom_model.PackageAccessRequest.search(
+        org_ids=org_ids,
+        status=filters['status'],
+        q=filters['q'] or None,
+        package_id=filters['dataset'] or None,
+        org_id=filters['org'] or None,
+        requested_from=_date_arg('from'),
+        requested_to=_date_arg('to'),
+        sort=filters['sort'],
+        offset=(page_number - 1) * PAGE_SIZE,
+        limit=PAGE_SIZE,
+    )
+    datasets, orgs = custom_model.PackageAccessRequest.filter_options(org_ids)
+
+    def page_url(**changes):
+        params = {k: v for k, v in filters.items() if v}
+        params.update(changes)
+        return url_for('access_requests.access_requests_dashboard',
+                       **{k: v for k, v in params.items() if v})
+
+    page = Page(
+        collection=items, page=page_number, items_per_page=PAGE_SIZE,
+        item_count=total, presliced_list=True,
+        url=lambda page=None, **kw: page_url(page=page),
+    )
 
     return render_template('access_requests/access_requests_dashboard.html',
-                           requests=requests,
-                           is_sysadmin=is_sysadmin,
-                           org_ids=org_ids)
+                           page=page,
+                           requests=items,
+                           total=total,
+                           status_counts=status_counts,
+                           filters=filters,
+                           datasets=datasets,
+                           orgs=orgs,
+                           page_url=page_url,
+                           is_sysadmin=user_obj.sysadmin)
+
+
+@access_requests_blueprint.route('/access_requests/<request_id>/history')
+def access_request_history(request_id):
+    """The history modal's content: the request and every step taken on it."""
+    user_obj = toolkit.c.userobj
+    if not user_obj:
+        toolkit.abort(403)
+    request_obj = custom_model.PackageAccessRequest.get(request_id)
+    if not request_obj:
+        toolkit.abort(404)
+    org_ids = _admin_org_ids(user_obj)
+    if org_ids is not None and request_obj.org_id not in org_ids:
+        toolkit.abort(403)
+    return render_template('access_requests/snippets/history_modal.html',
+                           item=request_obj)
+
+
+def _back_to_dashboard():
+    """The dashboard view the decision was made from (filters, page), if safe."""
+    target = request.form.get('return_to') or ''
+    if target.startswith('/access_requests') and '//' not in target and '\\' not in target:
+        return target
+    return url_for('access_requests.access_requests_dashboard')
 
 
 @access_requests_blueprint.route('/access_requests/update_status', methods=['POST'])
@@ -104,13 +182,13 @@ def update_request_status():
 
     if not request_id or not action:
         flash(_("Invalid request."), category='alert-danger')
-        return redirect(url_for('access_requests.access_requests_dashboard'))
+        return redirect(_back_to_dashboard())
 
     request_obj = custom_model.PackageAccessRequest.get(request_id)
 
     if not request_obj:
         flash(_("Request not found."), category='alert-danger')
-        return redirect(url_for('access_requests.access_requests_dashboard'))
+        return redirect(_back_to_dashboard())
 
     if not is_org_admin_by_package_id(request_obj.package_id):
         emit_access_request(
@@ -120,7 +198,7 @@ def update_request_status():
         )
         flash(_("You do not have access to this package."),
               category='alert-danger')
-        return redirect(url_for('access_requests.access_requests_dashboard'))
+        return redirect(_back_to_dashboard())
 
     approved_or_rejected_by_user_id = toolkit.c.userobj.id
 
@@ -133,7 +211,7 @@ def update_request_status():
         new_status = 'revoked'
     else:
         flash(_("Invalid action."), category='alert-danger')
-        return redirect(url_for('access_requests.access_requests_dashboard'))
+        return redirect(_back_to_dashboard())
 
     custom_model.PackageAccessRequest.update_status(
         request_id, new_status, rejection_message, approved_or_rejected_by_user_id
@@ -184,7 +262,7 @@ def update_request_status():
                             rejection_message, new_status)
     flash(
         _(f"Request {request_id} {new_status} successfully."), category='alert-success')
-    return redirect(url_for('access_requests.access_requests_dashboard'))
+    return redirect(_back_to_dashboard())
 
 
 def get_blueprints():

@@ -78,6 +78,12 @@ FRONTEND_TOKEN_ACTIONS = frozenset(
         # regenerate the user's own Smart Meter token (mints a *less*
         # privileged token; safe for the frontend to trigger)
         "smart_meter_token_create",
+        # the signed-in user's own dashboards (owner-only auth in dashboards.py)
+        "sse_dashboard_create",
+        "sse_dashboard_show",
+        "sse_dashboard_list",
+        "sse_dashboard_update",
+        "sse_dashboard_delete",
         # -- package / resource reads --
         "package_show",
         "package_list",

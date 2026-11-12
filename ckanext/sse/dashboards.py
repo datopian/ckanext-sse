@@ -49,6 +49,7 @@ NUMBER_TYPES = frozenset({
     "numeric", "float4", "float8", "float", "real", "double precision",
 })
 FILTER_TYPES = ("value", "relative_date", "range")
+VISIBILITIES = frozenset({"private", "public"})
 
 
 # Access
@@ -69,17 +70,63 @@ def _signed_in(context):
     return {"success": True}
 
 
-def _owner_only(context, data_dict):
+def _can(action, context, package_id):
+    """Whether the context's user may run a CKAN check on a dataset."""
+    try:
+        tk.check_access(action, {"user": context.get("user"), "auth_user_obj": context.get("auth_user_obj")}, {"id": package_id})
+        return True
+    except (tk.NotAuthorized, tk.ObjectNotFound):
+        return False
+
+
+def _package_active(package_id):
+    package = model.Package.get(package_id)
+    return package is not None and package.state == "active"
+
+
+def _can_edit(context, dashboard):
+    """Personal dashboards: their owner. Showcased ones: the data asset's editors."""
     user_obj = _user_obj(context)
     if user_obj is None:
-        return {"success": False, "msg": tk._("Sign in to use dashboards")}
-    dashboard = Dashboard.get(data_dict.get("id") or "")
-    # Unknown ids are left to the action, which answers 404.
-    if dashboard is None:
-        return {"success": True}
-    if dashboard.owner_user_id and dashboard.owner_user_id == user_obj.id:
-        return {"success": True}
-    return {"success": False}
+        return False
+    if dashboard.package_id:
+        return _package_active(dashboard.package_id) and _can("package_update", context, dashboard.package_id)
+    return dashboard.owner_user_id == user_obj.id
+
+
+def _can_view(context, dashboard):
+    """Editors see everything; signed-in users who can see the data asset see its public dashboards."""
+    if _can_edit(context, dashboard):
+        return True
+    return (
+        dashboard.package_id is not None
+        and dashboard.visibility == "public"
+        and _user_obj(context) is not None
+        and _package_active(dashboard.package_id)
+        and _can("package_show", context, dashboard.package_id)
+    )
+
+
+def _dashboard_from(data_dict):
+    """By id, or by data asset (id or name) and slug."""
+    if data_dict.get("id"):
+        return Dashboard.get(data_dict["id"])
+    if data_dict.get("package_id") and data_dict.get("slug"):
+        package = model.Package.get(data_dict["package_id"])
+        return Dashboard.by_slug(package.id, data_dict["slug"]) if package else None
+    return None
+
+
+def _auth_dashboard(check):
+    def auth(context, data_dict):
+        if _user_obj(context) is None:
+            return {"success": False, "msg": tk._("Sign in to use dashboards")}
+        dashboard = _dashboard_from(data_dict)
+        # Unknown dashboards are left to the action, which answers 404.
+        if dashboard is None:
+            return {"success": True}
+        return {"success": check(context, dashboard)}
+    return auth
 
 
 def auth_create(context, data_dict):
@@ -87,6 +134,10 @@ def auth_create(context, data_dict):
 
 
 def auth_list(context, data_dict):
+    package_id = data_dict.get("package_id")
+    if package_id:
+        # A data asset's public dashboards are listed to whoever can see it.
+        return {"success": _package_active(package_id) and _can("package_show", context, package_id)}
     result = _signed_in(context)
     if not result["success"]:
         return result
@@ -96,16 +147,33 @@ def auth_list(context, data_dict):
     return result
 
 
-def auth_show(context, data_dict):
-    return _owner_only(context, data_dict)
+auth_show = _auth_dashboard(_can_view)
+auth_update = _auth_dashboard(_can_edit)
+auth_delete = _auth_dashboard(_can_edit)
 
 
-def auth_update(context, data_dict):
-    return _owner_only(context, data_dict)
+def auth_showcase(context, data_dict):
+    """The dashboard's owner, and an editor of the target data asset."""
+    if _user_obj(context) is None:
+        return {"success": False, "msg": tk._("Sign in to use dashboards")}
+    dashboard = _dashboard_from(data_dict)
+    # Its owner, or for one already showcased its editors, who then get the
+    # action's clear "already showcased" answer instead of a bare refusal.
+    if dashboard is not None and not _can_edit(context, dashboard):
+        return {"success": False}
+    package_id = data_dict.get("package_id")
+    if package_id and not _can("package_update", context, package_id):
+        return {"success": False, "msg": tk._("You cannot edit this data asset")}
+    return {"success": True}
 
 
-def auth_delete(context, data_dict):
-    return _owner_only(context, data_dict)
+def auth_reorder(context, data_dict):
+    package_id = data_dict.get("package_id")
+    return {"success": bool(package_id) and _user_obj(context) is not None and _can("package_update", context, package_id)}
+
+
+def auth_showcase_targets(context, data_dict):
+    return _signed_in(context)
 
 
 # Config validation
@@ -513,10 +581,36 @@ def _require_user(context):
 
 
 def _get_or_404(data_dict):
-    dashboard = Dashboard.get(tk.get_or_bust(data_dict, "id"))
+    dashboard = _dashboard_from(data_dict)
     if dashboard is None:
+        tk.get_or_bust(data_dict, "id")  # a clear "Missing value" when neither id nor slug was given
+        raise tk.ObjectNotFound(tk._("Dashboard not found"))
+    # A deleted data asset's dashboards are gone with it.
+    if dashboard.package_id and not _package_active(dashboard.package_id):
         raise tk.ObjectNotFound(tk._("Dashboard not found"))
     return dashboard
+
+
+def _with_package(dashboard, item=None):
+    """A dashboard as a dict, with its data asset's names for links."""
+    item = item if item is not None else dashboard.as_dict()
+    if dashboard.package_id:
+        package = model.Package.get(dashboard.package_id)
+        if package is not None:
+            org = model.Group.get(package.owner_org) if package.owner_org else None
+            item["package"] = {
+                "id": package.id,
+                "name": package.name,
+                "title": package.title or package.name,
+                "organization": org.name if org else None,
+            }
+    return item
+
+
+def _summary(dashboard):
+    item = dashboard.as_dict()
+    item["layout"] = _layout(item.pop("config"))
+    return _with_package(dashboard, item)
 
 
 # Actions
@@ -555,12 +649,17 @@ def dashboard_show(context, data_dict):
     """Show a dashboard.
 
     :param id: the dashboard id
+    :param package_id: with ``slug``, instead of ``id``: a showcased
+        dashboard by its data asset (id or name) and slug
+    :param slug: see ``package_id``
     """
     tk.check_access("sse_dashboard_show", context, data_dict)
-    return _get_or_404(data_dict).as_dict()
+    dashboard = _get_or_404(data_dict)
+    item = _with_package(dashboard)
+    item["can_edit"] = _can_edit(context, dashboard)
+    return item
 
 
-@tk.side_effect_free
 def _layout(config):
     rows = (config or {}).get("rows") or []
     return [
@@ -570,23 +669,44 @@ def _layout(config):
     ]
 
 
+@tk.side_effect_free
 def dashboard_list(context, data_dict):
-    """List the signed-in user's personal dashboards, most recently updated first.
+    """List dashboards. Configs are left out; ``sse_dashboard_show`` returns
+    them. Each item has a ``layout`` instead: the widget type in each cell, row
+    by row (``None`` for an empty cell), enough to draw a thumbnail.
 
-    Configs are left out; ``sse_dashboard_show`` returns them. Each item has
-    a ``layout`` instead: the widget type in each cell, row by row (``None``
-    for an empty cell), enough to draw a thumbnail.
+    With no parameters: the signed-in user's personal dashboards, most recently
+    updated first.
 
-    :param user_id: sysadmins only, list another user's dashboards
+    :param package_id: a data asset's (id or name) showcased dashboards, in
+        order: all of them for its editors, the public ones for anyone else
+        who can see it. Each item says whether the caller ``can_edit`` it.
+    :param showcased: true for every showcased dashboard the caller can edit
+    :param user_id: sysadmins only, list another user's personal dashboards
     """
     tk.check_access("sse_dashboard_list", context, data_dict)
+    if data_dict.get("package_id"):
+        package = model.Package.get(data_dict["package_id"])
+        editor = _user_obj(context) is not None and _can("package_update", context, package.id)
+        # Public ones are listed to anyone who can see the data asset, even
+        # signed out (its page links them); opening one needs signing in.
+        return [
+            dict(_summary(d), can_edit=editor)
+            for d in Dashboard.for_package(package.id)
+            if editor or d.visibility == "public"
+        ]
+    if tk.asbool(data_dict.get("showcased")):
+        _require_user(context)
+        editable = {}
+        out = []
+        for d in Dashboard.showcased():
+            if d.package_id not in editable:
+                editable[d.package_id] = _package_active(d.package_id) and _can("package_update", context, d.package_id)
+            if editable[d.package_id]:
+                out.append(dict(_summary(d), can_edit=True))
+        return sorted(out, key=lambda x: x["updated_at"], reverse=True)
     user_id = data_dict.get("user_id") or _require_user(context).id
-    out = []
-    for dashboard in Dashboard.for_user(user_id):
-        item = dashboard.as_dict()
-        item["layout"] = _layout(item.pop("config"))
-        out.append(item)
-    return out
+    return [_summary(d) for d in Dashboard.for_user(user_id)]
 
 
 def dashboard_update(context, data_dict):
@@ -608,6 +728,12 @@ def dashboard_update(context, data_dict):
         dashboard.title = data_dict["title"].strip()
     if "description" in data_dict:
         dashboard.description = data_dict.get("description") or None
+    if "visibility" in data_dict:
+        if not dashboard.package_id:
+            raise tk.ValidationError({"visibility": ["only applies to dashboards showcased in a data asset"]})
+        if data_dict["visibility"] not in VISIBILITIES:
+            raise tk.ValidationError({"visibility": ["must be private or public"]})
+        dashboard.visibility = data_dict["visibility"]
     dashboard.updated_by = _require_user(context).id
     dashboard.updated_at = datetime.utcnow()
     model.Session.commit()
@@ -625,6 +751,117 @@ def dashboard_delete(context, data_dict):
     model.Session.commit()
 
 
+def _widget_names(config):
+    """Each widget or map layer that reads a resource: (resource_id, name to show)."""
+    for row in (config or {}).get("rows") or []:
+        for cell in (row or {}).get("cells") or []:
+            if not isinstance(cell, dict):
+                continue
+            kind = cell.get("type")
+            if kind == "chart":
+                yield cell.get("resource_id"), cell.get("title") or "Untitled chart"
+            elif kind == "kpi":
+                yield cell.get("resource_id"), cell.get("label") or "Key figure"
+            elif kind == "map":
+                for i, layer in enumerate(cell.get("layers") or []):
+                    yield (layer or {}).get("resource_id"), "Map layer {}".format(i + 1)
+
+
+def _slug_for(package_id, title):
+    base = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")[:80] or "dashboard"
+    slug, n = base, 2
+    while Dashboard.by_slug(package_id, slug) is not None:
+        slug, n = "{}-{}".format(base, n), n + 1
+    return slug
+
+
+def dashboard_showcase(context, data_dict):
+    """Move a personal dashboard into a data asset. It leaves My dashboards,
+    starts private, and from then on belongs to the data asset's editors. It
+    cannot be moved back.
+
+    :param id: the dashboard id (must be the caller's personal dashboard)
+    :param package_id: the data asset (id or name); the caller must be able to edit it
+    """
+    tk.check_access("sse_dashboard_showcase", context, data_dict)
+    dashboard = _get_or_404({"id": tk.get_or_bust(data_dict, "id")})
+    if dashboard.package_id or not dashboard.owner_user_id:
+        raise tk.ValidationError({"id": ["is already showcased in a data asset"]})
+    package = model.Package.get(tk.get_or_bust(data_dict, "package_id"))
+    if package is None or package.state != "active":
+        raise tk.ObjectNotFound(tk._("Data asset not found"))
+
+    # Every widget must use data every registered user can read; name the ones that do not.
+    resources = _Resources()
+    blocked = sorted({name for rid, name in _widget_names(dashboard.config) if rid and "error" in resources.get(rid)})
+    if blocked:
+        raise tk.ValidationError({
+            "config": ["These widgets use data that is not available to every registered user: " + ", ".join(blocked)]
+        })
+
+    user_id = _require_user(context).id
+    existing = Dashboard.for_package(package.id)
+    dashboard.owner_user_id = None
+    dashboard.package_id = package.id
+    dashboard.visibility = "private"
+    dashboard.slug = _slug_for(package.id, dashboard.title)
+    dashboard.position = (max(d.position for d in existing) + 1) if existing else 0
+    dashboard.updated_by = user_id
+    dashboard.updated_at = datetime.utcnow()
+    model.Session.commit()
+    return _with_package(dashboard)
+
+
+def dashboard_reorder(context, data_dict):
+    """Set the order of a data asset's dashboards.
+
+    :param package_id: the data asset (id or name)
+    :param order: every dashboard id of the data asset, in the new order
+    """
+    tk.check_access("sse_dashboard_reorder", context, data_dict)
+    package = model.Package.get(tk.get_or_bust(data_dict, "package_id"))
+    if package is None or package.state != "active":
+        raise tk.ObjectNotFound(tk._("Data asset not found"))
+    order = data_dict.get("order")
+    dashboards = {d.id: d for d in Dashboard.for_package(package.id)}
+    if not isinstance(order, list) or sorted(order) != sorted(dashboards):
+        raise tk.ValidationError({"order": ["must list each of the data asset's dashboards once"]})
+    for position, dashboard_id in enumerate(order):
+        dashboards[dashboard_id].position = position
+    model.Session.commit()
+    return [d.id for d in Dashboard.for_package(package.id)]
+
+
+@tk.side_effect_free
+def dashboard_showcase_targets(context, data_dict):
+    """Data assets the caller can edit, to showcase a dashboard in.
+
+    :param q: optional search text
+    """
+    tk.check_access("sse_dashboard_showcase_targets", context, data_dict)
+    user_obj = _require_user(context)
+    search = {"q": data_dict.get("q") or "", "rows": 20, "include_private": True, "sort": "title_string asc"}
+    if not user_obj.sysadmin:
+        orgs = tk.get_action("organization_list_for_user")(
+            {"user": user_obj.name, "ignore_auth": True}, {"id": user_obj.id, "permission": "update_dataset"}
+        )
+        if not orgs:
+            return []
+        search["fq"] = "owner_org:({})".format(" OR ".join(o["id"] for o in orgs))
+    result = tk.get_action("package_search")({"user": user_obj.name}, search)
+    return [
+        {
+            "id": p["id"],
+            "name": p["name"],
+            "title": p.get("title") or p["name"],
+            "organization": (p.get("organization") or {}).get("title") or "",
+            "private": p.get("private", False),
+        }
+        for p in result["results"]
+        if _can("package_update", {"user": user_obj.name}, p["id"])
+    ]
+
+
 def get_actions():
     return {
         "sse_dashboard_create": dashboard_create,
@@ -632,6 +869,9 @@ def get_actions():
         "sse_dashboard_list": dashboard_list,
         "sse_dashboard_update": dashboard_update,
         "sse_dashboard_delete": dashboard_delete,
+        "sse_dashboard_showcase": dashboard_showcase,
+        "sse_dashboard_reorder": dashboard_reorder,
+        "sse_dashboard_showcase_targets": dashboard_showcase_targets,
     }
 
 
@@ -642,4 +882,7 @@ def get_auth_functions():
         "sse_dashboard_list": auth_list,
         "sse_dashboard_update": auth_update,
         "sse_dashboard_delete": auth_delete,
+        "sse_dashboard_showcase": auth_showcase,
+        "sse_dashboard_reorder": auth_reorder,
+        "sse_dashboard_showcase_targets": auth_showcase_targets,
     }

@@ -662,3 +662,21 @@ class Dashboard(DomainObject.DomainObject, tk.BaseModel):
             .order_by(cls.updated_at.desc())
             .all()
         )
+
+    @classmethod
+    def for_package(cls, package_id):
+        """A data asset's dashboards in the order its editors set."""
+        return (
+            Session.query(cls)
+            .filter_by(package_id=package_id)
+            .order_by(cls.position.asc(), cls.created_at.asc())
+            .all()
+        )
+
+    @classmethod
+    def by_slug(cls, package_id, slug):
+        return Session.query(cls).filter_by(package_id=package_id, slug=slug).first()
+
+    @classmethod
+    def showcased(cls):
+        return Session.query(cls).filter(cls.package_id.isnot(None)).all()

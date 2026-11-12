@@ -113,7 +113,7 @@ def test_owner_can_create_show_list_update_and_delete(user, resource_id):
     listed = call("sse_dashboard_list", user)
     assert [d["id"] for d in listed] == [created["id"]]
     assert "config" not in listed[0]
-    assert listed[0]["layout"] == [["kpi", "text"], ["chart"]]
+    assert listed[0]["layout"] == [["kpi", "text"], ["chart"], ["map", None]]
 
     updated = call("sse_dashboard_update", user, id=created["id"], title="Renamed")
     assert updated["title"] == "Renamed"
@@ -257,13 +257,13 @@ def test_chart_date_group_is_checked(user, resource_id):
     config = config_for(resource_id)
     chart = config["rows"][1]["cells"][0]
     chart["query"]["date_group"] = "fortnight"
-    with pytest.raises(tk.ValidationError) as e:
+    with pytest.raises(logic.ValidationError) as e:
         call("sse_dashboard_create", user, title="Bad period", config=config)
     assert "fortnight" not in str(e.value) and "date_group" in str(e.value)
 
     chart["query"]["date_group"] = "month"
     chart["query"]["dimension"] = "status"  # text, not a date
-    with pytest.raises(tk.ValidationError) as e:
+    with pytest.raises(logic.ValidationError) as e:
         call("sse_dashboard_create", user, title="Not a date", config=config)
     assert "needs a date or timestamp dimension" in str(e.value)
 
@@ -283,12 +283,134 @@ def test_range_filter_is_checked(user, resource_id):
     assert created["config"]["filters"][-1]["type"] == "range"
 
     config["filters"][-1]["options"].append({"id": "bad", "label": "Bad", "min": 5, "max": 2})
-    with pytest.raises(tk.ValidationError) as e:
+    with pytest.raises(logic.ValidationError) as e:
         call("sse_dashboard_create", user, title="Bad range", config=config)
     assert "minimum must be lower than maximum" in str(e.value)
 
     config["filters"][-1]["options"].pop()
     config["rows"][1]["cells"][0]["filter_bindings"] = {"size": "status"}
-    with pytest.raises(tk.ValidationError) as e:
+    with pytest.raises(logic.ValidationError) as e:
         call("sse_dashboard_create", user, title="Range on text", config=config)
     assert "range filters need a number column" in str(e.value)
+
+
+# Showcasing in data assets
+
+@pytest.fixture
+def asset():
+    """A public data asset with an editor and a plain member."""
+    editor = factories.User(password=PASSWORD)
+    member = factories.User(password=PASSWORD)
+    org = factories.Organization(users=[
+        {"name": editor["name"], "capacity": "editor"},
+        {"name": member["name"], "capacity": "member"},
+    ])
+    dataset = factories.Dataset(owner_org=org["id"])
+    return {"dataset": dataset, "editor": editor, "member": member}
+
+
+def personal(owner, resource_id, title="Dispatch"):
+    return call("sse_dashboard_create", owner, title=title, config=config_for(resource_id))
+
+
+def test_showcase_moves_a_dashboard_into_the_data_asset(asset, resource_id):
+    editor = asset["editor"]
+    dashboard = personal(editor, resource_id)
+
+    shown = call("sse_dashboard_showcase", editor, id=dashboard["id"], package_id=asset["dataset"]["name"])
+
+    assert shown["package_id"] == asset["dataset"]["id"]
+    assert shown["owner_user_id"] is None
+    assert shown["visibility"] == "private"
+    assert shown["slug"] == "dispatch"
+    assert shown["package"]["name"] == asset["dataset"]["name"]
+    # It leaves My dashboards and cannot be showcased again.
+    assert call("sse_dashboard_list", editor) == []
+    with pytest.raises(logic.ValidationError):
+        call("sse_dashboard_showcase", editor, id=dashboard["id"], package_id=asset["dataset"]["id"])
+
+
+def test_showcase_needs_edit_rights_on_the_data_asset(asset, resource_id):
+    member = asset["member"]
+    dashboard = personal(member, resource_id)
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_showcase", member, id=dashboard["id"], package_id=asset["dataset"]["id"])
+
+
+def test_showcase_names_widgets_whose_data_is_not_open(asset, resource_id):
+    editor = asset["editor"]
+    dashboard = personal(editor, resource_id)
+    # The data becomes restricted after the dashboard was saved.
+    package_id = model.Resource.get(resource_id).package_id
+    helpers.call_action("package_patch", id=package_id, extras=[{"key": "is_restricted", "value": "true"}])
+    with pytest.raises(logic.ValidationError) as e:
+        call("sse_dashboard_showcase", editor, id=dashboard["id"], package_id=asset["dataset"]["id"])
+    message = str(e.value)
+    assert "Total MW" in message and "Untitled chart" in message and "Map layer 1" in message
+
+
+def test_editors_manage_and_viewers_see_public_ones(asset, resource_id):
+    editor, member = asset["editor"], asset["member"]
+    other = factories.User(password=PASSWORD)
+    shown = call("sse_dashboard_showcase", editor, id=personal(editor, resource_id)["id"],
+                 package_id=asset["dataset"]["id"])
+
+    # Private: editors only.
+    assert [d["id"] for d in call("sse_dashboard_list", member, package_id=asset["dataset"]["id"])] == []
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_show", other, id=shown["id"])
+
+    call("sse_dashboard_update", editor, id=shown["id"], visibility="public")
+
+    listed = call("sse_dashboard_list", other, package_id=asset["dataset"]["name"])
+    assert [d["id"] for d in listed] == [shown["id"]] and listed[0]["can_edit"] is False
+    by_slug = call("sse_dashboard_show", other, package_id=asset["dataset"]["name"], slug="dispatch")
+    assert by_slug["id"] == shown["id"] and by_slug["can_edit"] is False
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_update", other, id=shown["id"], title="Mine now")
+
+    # Another editor of the data asset can manage it, not only whoever showcased it.
+    second = factories.User(password=PASSWORD)
+    helpers.call_action("organization_member_create", id=asset["dataset"]["owner_org"],
+                        username=second["name"], role="editor")
+    assert call("sse_dashboard_update", second, id=shown["id"], title="Renamed")["title"] == "Renamed"
+    assert [d["id"] for d in call("sse_dashboard_list", second, showcased=True)] == [shown["id"]]
+
+
+def test_visibility_only_for_showcased(user, resource_id):
+    dashboard = personal(user, resource_id)
+    with pytest.raises(logic.ValidationError):
+        call("sse_dashboard_update", user, id=dashboard["id"], visibility="public")
+
+
+def test_reorder_and_unique_slugs(asset, resource_id):
+    editor = asset["editor"]
+    package_id = asset["dataset"]["id"]
+    a = call("sse_dashboard_showcase", editor, id=personal(editor, resource_id)["id"], package_id=package_id)
+    b = call("sse_dashboard_showcase", editor, id=personal(editor, resource_id)["id"], package_id=package_id)
+    assert (a["slug"], b["slug"]) == ("dispatch", "dispatch-2")
+    assert (a["position"], b["position"]) == (0, 1)
+
+    assert call("sse_dashboard_reorder", editor, package_id=package_id, order=[b["id"], a["id"]]) == [b["id"], a["id"]]
+    with pytest.raises(logic.ValidationError):
+        call("sse_dashboard_reorder", editor, package_id=package_id, order=[a["id"]])
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_reorder", asset["member"], package_id=package_id, order=[a["id"], b["id"]])
+
+
+def test_deleted_data_asset_hides_its_dashboards(asset, resource_id):
+    editor = asset["editor"]
+    shown = call("sse_dashboard_showcase", editor, id=personal(editor, resource_id)["id"],
+                 package_id=asset["dataset"]["id"])
+    helpers.call_action("package_delete", id=asset["dataset"]["id"])
+    with pytest.raises((logic.NotFound, logic.NotAuthorized)):
+        call("sse_dashboard_show", editor, id=shown["id"])
+    # Purging the data asset removes them.
+    helpers.call_action("dataset_purge", id=asset["dataset"]["id"])
+    assert Dashboard.get(shown["id"]) is None
+
+
+def test_showcase_targets_are_editable_data_assets(asset):
+    targets = call("sse_dashboard_showcase_targets", asset["editor"])
+    assert asset["dataset"]["id"] in [t["id"] for t in targets]
+    assert call("sse_dashboard_showcase_targets", asset["member"]) == []

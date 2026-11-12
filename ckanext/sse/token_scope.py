@@ -86,8 +86,12 @@ FRONTEND_TOKEN_ACTIONS = frozenset(
         "sse_dashboard_delete",
         # showcasing in data assets: permission comes from editing the data asset
         "sse_dashboard_showcase",
+        "sse_dashboard_move",
         "sse_dashboard_reorder",
         "sse_dashboard_showcase_targets",
+        # card screenshots: same rules as editing and viewing
+        "sse_dashboard_preview_update",
+        "sse_dashboard_preview_show",
         # -- package / resource reads --
         "package_show",
         "package_list",

@@ -1,5 +1,6 @@
 """Personal dashboards: access rules and config validation."""
 
+import base64
 import copy
 
 import pytest
@@ -8,7 +9,7 @@ from ckan import logic, model
 from ckan.tests import factories, helpers
 
 from ckanext.sse import action as sse_action
-from ckanext.sse.model import Dashboard
+from ckanext.sse.model import Dashboard, DashboardPreview
 
 pytestmark = [
     pytest.mark.ckan_config("ckan.plugins", "activity datastore sse"),
@@ -415,3 +416,112 @@ def test_showcase_targets_are_editable_data_assets(asset):
     targets = call("sse_dashboard_showcase_targets", asset["editor"])
     assert asset["dataset"]["id"] in [t["id"] for t in targets]
     assert call("sse_dashboard_showcase_targets", asset["member"]) == []
+
+
+# Card previews
+
+WEBP = base64.b64encode(b"RIFF\x1a\x00\x00\x00WEBPVP8 " + b"\x00" * 14).decode()
+
+
+def test_preview_is_stored_and_listed(user, resource_id):
+    dashboard = personal(user, resource_id)
+    assert call("sse_dashboard_list", user)[0]["preview_at"] is None
+    with pytest.raises(logic.NotFound):
+        call("sse_dashboard_preview_show", user, id=dashboard["id"])
+
+    saved = call("sse_dashboard_preview_update", user, id=dashboard["id"], image=WEBP)
+
+    assert call("sse_dashboard_list", user)[0]["preview_at"] == saved["preview_at"]
+    assert call("sse_dashboard_show", user, id=dashboard["id"])["preview_at"] == saved["preview_at"]
+    shown = call("sse_dashboard_preview_show", user, id=dashboard["id"])
+    assert shown["mimetype"] == "image/webp" and shown["image"] == WEBP
+
+
+@pytest.mark.parametrize("image", [
+    "not base64!",
+    base64.b64encode(b"<svg onload=alert(1)>").decode(),
+    base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * (512 * 1024)).decode(),
+])
+def test_preview_must_be_a_small_raster_image(user, resource_id, image):
+    dashboard = personal(user, resource_id)
+    with pytest.raises(logic.ValidationError):
+        call("sse_dashboard_preview_update", user, id=dashboard["id"], image=image)
+
+
+def test_preview_follows_the_dashboard_access_rules(asset, resource_id):
+    editor, member = asset["editor"], asset["member"]
+    dashboard = personal(editor, resource_id)
+    call("sse_dashboard_preview_update", editor, id=dashboard["id"], image=WEBP)
+    # Personal: its owner only.
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_preview_update", member, id=dashboard["id"], image=WEBP)
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_preview_show", member, id=dashboard["id"])
+
+    call("sse_dashboard_showcase", editor, id=dashboard["id"], package_id=asset["dataset"]["id"])
+    outsider = factories.User(password=PASSWORD)
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_preview_show", outsider, id=dashboard["id"])
+    call("sse_dashboard_update", editor, id=dashboard["id"], visibility="public")
+    # Public showcased cards are listed to whoever sees the data asset.
+    assert call("sse_dashboard_preview_show", outsider, id=dashboard["id"])["image"] == WEBP
+    assert call("sse_dashboard_list", outsider, package_id=asset["dataset"]["id"])[0]["preview_at"]
+
+
+def test_preview_goes_with_its_dashboard(user, resource_id):
+    dashboard = personal(user, resource_id)
+    call("sse_dashboard_preview_update", user, id=dashboard["id"], image=WEBP)
+    call("sse_dashboard_delete", user, id=dashboard["id"])
+    model.Session.expire_all()
+    assert DashboardPreview.get(dashboard["id"]) is None
+
+
+# Moving between data assets
+
+def _second_asset(editor):
+    org = factories.Organization(users=[{"name": editor["name"], "capacity": "editor"}])
+    return factories.Dataset(owner_org=org["id"])
+
+
+def test_move_to_another_data_asset_keeps_the_old_address(asset, resource_id):
+    editor = asset["editor"]
+    target = _second_asset(editor)
+    shown = call("sse_dashboard_showcase", editor, id=personal(editor, resource_id)["id"],
+                 package_id=asset["dataset"]["id"])
+    call("sse_dashboard_update", editor, id=shown["id"], visibility="public")
+
+    moved = call("sse_dashboard_move", editor, id=shown["id"], package_id=target["name"])
+
+    assert moved["package_id"] == target["id"] and moved["visibility"] == "private"
+    assert call("sse_dashboard_list", editor, package_id=asset["dataset"]["id"]) == []
+    assert [d["id"] for d in call("sse_dashboard_list", editor, package_id=target["id"])] == [shown["id"]]
+    old = call("sse_dashboard_show", editor, package_id=asset["dataset"]["name"], slug="dispatch")
+    assert old["id"] == shown["id"] and old["package"]["name"] == target["name"]
+    # A new insight may take the old slug; it then wins over the redirect.
+    again = call("sse_dashboard_showcase", editor, id=personal(editor, resource_id)["id"],
+                 package_id=asset["dataset"]["id"])
+    assert again["slug"] == "dispatch"
+    assert call("sse_dashboard_show", editor, package_id=asset["dataset"]["id"], slug="dispatch")["id"] == again["id"]
+
+
+def test_move_needs_edit_rights_on_both_data_assets(asset, resource_id):
+    editor = asset["editor"]
+    shown = call("sse_dashboard_showcase", editor, id=personal(editor, resource_id)["id"],
+                 package_id=asset["dataset"]["id"])
+    elsewhere = factories.Dataset(owner_org=factories.Organization()["id"])
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_move", editor, id=shown["id"], package_id=elsewhere["id"])
+    # An editor of the target only, not of where it is now.
+    outsider = factories.User(password=PASSWORD)
+    with pytest.raises(logic.NotAuthorized):
+        call("sse_dashboard_move", outsider, id=shown["id"], package_id=_second_asset(outsider)["id"])
+
+
+def test_move_is_for_showcased_dashboards_only(asset, resource_id):
+    editor = asset["editor"]
+    dashboard = personal(editor, resource_id)
+    with pytest.raises(logic.ValidationError):
+        call("sse_dashboard_move", editor, id=dashboard["id"], package_id=asset["dataset"]["id"])
+    call("sse_dashboard_showcase", editor, id=dashboard["id"], package_id=asset["dataset"]["id"])
+    with pytest.raises(logic.ValidationError):
+        call("sse_dashboard_move", editor, id=dashboard["id"], package_id=asset["dataset"]["name"])

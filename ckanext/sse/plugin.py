@@ -13,7 +13,7 @@ import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
 from .model import (
     PackageAccessRequest, PackageAccessRequestEvent, FormResponse,
-    UserPasswordHistory, Dashboard,
+    UserPasswordHistory, Dashboard, DashboardPreview, DashboardRedirect,
 )
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
@@ -89,6 +89,8 @@ class SsePlugin(plugins.SingletonPlugin):
         if not UserPasswordHistory.__table__.exists(meta.engine):
             UserPasswordHistory.__table__.create(meta.engine)
         Dashboard.__table__.create(meta.engine, checkfirst=True)
+        DashboardPreview.__table__.create(meta.engine, checkfirst=True)
+        DashboardRedirect.__table__.create(meta.engine, checkfirst=True)
         # No-op unless ckanext.sse.mail_suppressed_users lists accounts.
         mail_suppression.install()
 

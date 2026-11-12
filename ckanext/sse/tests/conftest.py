@@ -13,6 +13,8 @@ from ckan.model.meta import engine
 
 from ckanext.sse.model import (
     Dashboard,
+    DashboardPreview,
+    DashboardRedirect,
     FormResponse,
     PackageAccessRequest,
     PackageAccessRequestEvent,
@@ -25,6 +27,8 @@ EXTENSION_TABLES = (
     FormResponse,
     UserPasswordHistory,
     Dashboard,
+    DashboardPreview,
+    DashboardRedirect,
 )
 
 

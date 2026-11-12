@@ -3,7 +3,7 @@ from collections import OrderedDict
 
 from sqlalchemy import (
     orm, Column, String, Text, DateTime, ForeignKey, Enum, Index, Boolean,
-    Integer, CheckConstraint, func, or_, text, inspect as sa_inspect,
+    Integer, CheckConstraint, LargeBinary, func, or_, text, inspect as sa_inspect,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Unicode
@@ -680,3 +680,59 @@ class Dashboard(DomainObject.DomainObject, tk.BaseModel):
     @classmethod
     def showcased(cls):
         return Session.query(cls).filter(cls.package_id.isnot(None)).all()
+
+
+class DashboardPreview(tk.BaseModel):
+    """A screenshot of a dashboard for its card, taken in the browser on save.
+
+    Kept apart from ``sse_dashboard`` so listing dashboards never loads images.
+    """
+
+    __tablename__ = "sse_dashboard_preview"
+
+    dashboard_id = Column(
+        Unicode(64), ForeignKey("sse_dashboard.id", ondelete="CASCADE"), primary_key=True)
+    mimetype = Column(String(40), nullable=False)
+    image = Column(LargeBinary, nullable=False)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    @classmethod
+    def get(cls, dashboard_id):
+        return Session.get(cls, dashboard_id)
+
+    @classmethod
+    def taken_at(cls, dashboard_ids):
+        """When each of these dashboards' previews was taken, without loading the images."""
+        if not dashboard_ids:
+            return {}
+        rows = (
+            Session.query(cls.dashboard_id, cls.updated_at)
+            .filter(cls.dashboard_id.in_(list(dashboard_ids)))
+            .all()
+        )
+        return {dashboard_id: taken.isoformat() for dashboard_id, taken in rows}
+
+
+class DashboardRedirect(tk.BaseModel):
+    """An insight's old address after it moved to another data asset."""
+
+    __tablename__ = "sse_dashboard_redirect"
+
+    package_id = Column(
+        String(60), ForeignKey("package.id", ondelete="CASCADE"), primary_key=True)
+    slug = Column(Unicode(100), primary_key=True)
+    dashboard_id = Column(
+        Unicode(64), ForeignKey("sse_dashboard.id", ondelete="CASCADE"), nullable=False)
+
+    @classmethod
+    def target(cls, package_id, slug):
+        found = Session.get(cls, (package_id, slug))
+        return Dashboard.get(found.dashboard_id) if found else None
+
+    @classmethod
+    def remember(cls, package_id, slug, dashboard_id):
+        found = Session.get(cls, (package_id, slug))
+        if found is None:
+            Session.add(cls(package_id=package_id, slug=slug, dashboard_id=dashboard_id))
+        else:
+            found.dashboard_id = dashboard_id

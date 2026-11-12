@@ -5,6 +5,8 @@ map or text), plus dashboard-wide filters that widgets bind to by column.
 The portal builds the queries; this module keeps what is stored well formed
 and limited to data every signed-in user may read.
 """
+import base64
+import binascii
 import json
 import re
 from datetime import datetime
@@ -12,7 +14,7 @@ from datetime import datetime
 import ckan.plugins.toolkit as tk
 from ckan import model
 
-from .model import Dashboard
+from .model import Dashboard, DashboardPreview, DashboardRedirect
 
 SCHEMA_VERSION = 1
 
@@ -26,6 +28,7 @@ MAX_FILTER_OPTIONS = 50
 MAX_WIDGET_FILTERS = 20
 MAX_MAP_LAYERS = 10
 MAX_TOOLTIP_FIELDS = 10
+MAX_PREVIEW_BYTES = 512 * 1024
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -113,7 +116,10 @@ def _dashboard_from(data_dict):
         return Dashboard.get(data_dict["id"])
     if data_dict.get("package_id") and data_dict.get("slug"):
         package = model.Package.get(data_dict["package_id"])
-        return Dashboard.by_slug(package.id, data_dict["slug"]) if package else None
+        if package is None:
+            return None
+        # An insight that moved to another data asset is still found by its old address.
+        return Dashboard.by_slug(package.id, data_dict["slug"]) or DashboardRedirect.target(package.id, data_dict["slug"])
     return None
 
 
@@ -150,6 +156,9 @@ def auth_list(context, data_dict):
 auth_show = _auth_dashboard(_can_view)
 auth_update = _auth_dashboard(_can_edit)
 auth_delete = _auth_dashboard(_can_edit)
+auth_preview_update = _auth_dashboard(_can_edit)
+auth_preview_show = _auth_dashboard(_can_view)
+
 
 
 def auth_showcase(context, data_dict):
@@ -159,6 +168,19 @@ def auth_showcase(context, data_dict):
     dashboard = _dashboard_from(data_dict)
     # Its owner, or for one already showcased its editors, who then get the
     # action's clear "already showcased" answer instead of a bare refusal.
+    if dashboard is not None and not _can_edit(context, dashboard):
+        return {"success": False}
+    package_id = data_dict.get("package_id")
+    if package_id and not _can("package_update", context, package_id):
+        return {"success": False, "msg": tk._("You cannot edit this data asset")}
+    return {"success": True}
+
+
+def auth_move(context, data_dict):
+    """An editor of the data asset it is in, and of the one it moves to."""
+    if _user_obj(context) is None:
+        return {"success": False, "msg": tk._("Sign in to use dashboards")}
+    dashboard = _dashboard_from(data_dict)
     if dashboard is not None and not _can_edit(context, dashboard):
         return {"success": False}
     package_id = data_dict.get("package_id")
@@ -607,8 +629,10 @@ def _with_package(dashboard, item=None):
     return item
 
 
-def _summary(dashboard):
+def _summary(dashboard, previews=None):
     item = dashboard.as_dict()
+    # When its card preview was taken, if it has one.
+    item["preview_at"] = (previews or {}).get(dashboard.id)
     config = item.pop("config")
     item["layout"] = _layout(config)
     # Which resources it reads, e.g. for a resource's "Insights that use this data".
@@ -660,6 +684,7 @@ def dashboard_show(context, data_dict):
     dashboard = _get_or_404(data_dict)
     item = _with_package(dashboard)
     item["can_edit"] = _can_edit(context, dashboard)
+    item["preview_at"] = DashboardPreview.taken_at([dashboard.id]).get(dashboard.id)
     return item
 
 
@@ -693,23 +718,25 @@ def dashboard_list(context, data_dict):
         editor = _user_obj(context) is not None and _can("package_update", context, package.id)
         # Public ones are listed to anyone who can see the data asset, even
         # signed out (its page links them); opening one needs signing in.
-        return [
-            dict(_summary(d), can_edit=editor)
-            for d in Dashboard.for_package(package.id)
-            if editor or d.visibility == "public"
-        ]
+        listed = [d for d in Dashboard.for_package(package.id) if editor or d.visibility == "public"]
+        previews = DashboardPreview.taken_at(d.id for d in listed)
+        return [dict(_summary(d, previews), can_edit=editor) for d in listed]
     if tk.asbool(data_dict.get("showcased")):
         _require_user(context)
         editable = {}
-        out = []
+        listed = []
         for d in Dashboard.showcased():
             if d.package_id not in editable:
                 editable[d.package_id] = _package_active(d.package_id) and _can("package_update", context, d.package_id)
             if editable[d.package_id]:
-                out.append(dict(_summary(d), can_edit=True))
+                listed.append(d)
+        previews = DashboardPreview.taken_at(d.id for d in listed)
+        out = [dict(_summary(d, previews), can_edit=True) for d in listed]
         return sorted(out, key=lambda x: x["updated_at"], reverse=True)
     user_id = data_dict.get("user_id") or _require_user(context).id
-    return [_summary(d) for d in Dashboard.for_user(user_id)]
+    listed = Dashboard.for_user(user_id)
+    previews = DashboardPreview.taken_at(d.id for d in listed)
+    return [_summary(d, previews) for d in listed]
 
 
 def dashboard_update(context, data_dict):
@@ -794,7 +821,15 @@ def dashboard_showcase(context, data_dict):
     if package is None or package.state != "active":
         raise tk.ObjectNotFound(tk._("Data asset not found"))
 
-    # Every widget must use data every registered user can read; name the ones that do not.
+    _check_open_data(dashboard)
+    dashboard.owner_user_id = None
+    _place_in(dashboard, package, _require_user(context).id)
+    model.Session.commit()
+    return _with_package(dashboard)
+
+
+def _check_open_data(dashboard):
+    """Every widget must use data every registered user can read; name the ones that do not."""
     resources = _Resources()
     blocked = sorted({name for rid, name in _widget_names(dashboard.config) if rid and "error" in resources.get(rid)})
     if blocked:
@@ -802,15 +837,38 @@ def dashboard_showcase(context, data_dict):
             "config": ["These widgets use data that is not available to every registered user: " + ", ".join(blocked)]
         })
 
-    user_id = _require_user(context).id
-    existing = Dashboard.for_package(package.id)
-    dashboard.owner_user_id = None
+
+def _place_in(dashboard, package, user_id):
+    """Put a dashboard last in a data asset's insights, private, with a free slug."""
+    existing = [d for d in Dashboard.for_package(package.id) if d.id != dashboard.id]
     dashboard.package_id = package.id
     dashboard.visibility = "private"
     dashboard.slug = _slug_for(package.id, dashboard.title)
     dashboard.position = (max(d.position for d in existing) + 1) if existing else 0
     dashboard.updated_by = user_id
     dashboard.updated_at = datetime.utcnow()
+
+
+def dashboard_move(context, data_dict):
+    """Move a showcased dashboard to another data asset. It starts private
+    there, and its old address keeps leading to it.
+
+    :param id: the dashboard id
+    :param package_id: the data asset (id or name) to move it to; the caller
+        must be able to edit both
+    """
+    tk.check_access("sse_dashboard_move", context, data_dict)
+    dashboard = _get_or_404({"id": tk.get_or_bust(data_dict, "id")})
+    if not dashboard.package_id:
+        raise tk.ValidationError({"id": ["is not showcased in a data asset"]})
+    package = model.Package.get(tk.get_or_bust(data_dict, "package_id"))
+    if package is None or package.state != "active":
+        raise tk.ObjectNotFound(tk._("Data asset not found"))
+    if package.id == dashboard.package_id:
+        raise tk.ValidationError({"package_id": ["is the data asset it is already in"]})
+    _check_open_data(dashboard)
+    DashboardRedirect.remember(dashboard.package_id, dashboard.slug, dashboard.id)
+    _place_in(dashboard, package, _require_user(context).id)
     model.Session.commit()
     return _with_package(dashboard)
 
@@ -865,6 +923,65 @@ def dashboard_showcase_targets(context, data_dict):
     ]
 
 
+def _image_type(data):
+    """The image's type from its first bytes: WebP, PNG or JPEG only."""
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return None
+
+
+def dashboard_preview_update(context, data_dict):
+    """Store the screenshot shown on a dashboard's card, replacing any before.
+
+    :param id: the dashboard id
+    :param image: the image, base64 encoded (WebP, PNG or JPEG, up to 512 KB)
+    """
+    tk.check_access("sse_dashboard_preview_update", context, data_dict)
+    dashboard = _get_or_404(data_dict)
+    encoded = data_dict.get("image")
+    if not isinstance(encoded, str) or len(encoded) > MAX_PREVIEW_BYTES * 4 // 3 + 4:
+        raise tk.ValidationError({"image": ["must be a base64 image up to 512 KB"]})
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise tk.ValidationError({"image": ["must be base64 encoded"]})
+    mimetype = _image_type(data)
+    if not mimetype:
+        raise tk.ValidationError({"image": ["must be a WebP, PNG or JPEG image"]})
+    preview = DashboardPreview.get(dashboard.id)
+    if preview is None:
+        preview = DashboardPreview(dashboard_id=dashboard.id)
+        model.Session.add(preview)
+    preview.mimetype = mimetype
+    preview.image = data
+    preview.updated_at = datetime.utcnow()
+    model.Session.commit()
+    return {"id": dashboard.id, "preview_at": preview.updated_at.isoformat()}
+
+
+@tk.side_effect_free
+def dashboard_preview_show(context, data_dict):
+    """A dashboard's card screenshot.
+
+    :param id: the dashboard id
+    :returns: ``mimetype``, ``image`` (base64) and ``preview_at``
+    """
+    tk.check_access("sse_dashboard_preview_show", context, data_dict)
+    dashboard = _get_or_404(data_dict)
+    preview = DashboardPreview.get(dashboard.id)
+    if preview is None:
+        raise tk.ObjectNotFound("This dashboard has no preview")
+    return {
+        "mimetype": preview.mimetype,
+        "image": base64.b64encode(preview.image).decode("ascii"),
+        "preview_at": preview.updated_at.isoformat(),
+    }
+
+
 def get_actions():
     return {
         "sse_dashboard_create": dashboard_create,
@@ -873,8 +990,11 @@ def get_actions():
         "sse_dashboard_update": dashboard_update,
         "sse_dashboard_delete": dashboard_delete,
         "sse_dashboard_showcase": dashboard_showcase,
+        "sse_dashboard_move": dashboard_move,
         "sse_dashboard_reorder": dashboard_reorder,
         "sse_dashboard_showcase_targets": dashboard_showcase_targets,
+        "sse_dashboard_preview_update": dashboard_preview_update,
+        "sse_dashboard_preview_show": dashboard_preview_show,
     }
 
 
@@ -886,6 +1006,9 @@ def get_auth_functions():
         "sse_dashboard_update": auth_update,
         "sse_dashboard_delete": auth_delete,
         "sse_dashboard_showcase": auth_showcase,
+        "sse_dashboard_move": auth_move,
         "sse_dashboard_reorder": auth_reorder,
         "sse_dashboard_showcase_targets": auth_showcase_targets,
+        "sse_dashboard_preview_update": auth_preview_update,
+        "sse_dashboard_preview_show": auth_preview_show,
     }

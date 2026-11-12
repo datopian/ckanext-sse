@@ -8,12 +8,12 @@ import logging
 from ckanext.sse import action, auth
 from ckanext.sse import cli, upload_security, upload_scan, session_policy, token_scope
 from ckanext.sse import password_policy, login_throttle, account_lifecycle, file_history
-from ckanext.sse import scim, mail_suppression
+from ckanext.sse import scim, mail_suppression, dashboards
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
 from .model import (
     PackageAccessRequest, PackageAccessRequestEvent, FormResponse,
-    UserPasswordHistory,
+    UserPasswordHistory, Dashboard,
 )
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
@@ -88,6 +88,7 @@ class SsePlugin(plugins.SingletonPlugin):
             FormResponse.__table__.create(meta.engine)
         if not UserPasswordHistory.__table__.exists(meta.engine):
             UserPasswordHistory.__table__.create(meta.engine)
+        Dashboard.__table__.create(meta.engine, checkfirst=True)
         # No-op unless ckanext.sse.mail_suppressed_users lists accounts.
         mail_suppression.install()
 
@@ -297,6 +298,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "user_create": password_policy.user_create,
             "user_update": password_policy.user_update,
         }
+        actions.update(dashboards.get_actions())
 
         # Chaining onto a missing action raises at startup, and datastore
         # withholds this one unless sqlsearch is enabled.
@@ -316,6 +318,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "data_reuse_update": auth.data_reuse_update,
             "data_reuse_delete": auth.data_reuse_delete,
             "datastore_search_sql": auth.datastore_search_sql,
+            **dashboards.get_auth_functions(),
         }
 
     # ISignal

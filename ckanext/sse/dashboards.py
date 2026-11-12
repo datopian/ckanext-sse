@@ -533,10 +533,21 @@ def dashboard_show(context, data_dict):
 
 
 @tk.side_effect_free
+def _layout(config):
+    rows = (config or {}).get("rows") or []
+    return [
+        [cell.get("type") if isinstance(cell, dict) else None for cell in (row.get("cells") or [])]
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
 def dashboard_list(context, data_dict):
     """List the signed-in user's personal dashboards, most recently updated first.
 
-    Configs are left out; ``sse_dashboard_show`` returns them.
+    Configs are left out; ``sse_dashboard_show`` returns them. Each item has
+    a ``layout`` instead: the widget type in each cell, row by row (``None``
+    for an empty cell), enough to draw a thumbnail.
 
     :param user_id: sysadmins only, list another user's dashboards
     """
@@ -545,7 +556,7 @@ def dashboard_list(context, data_dict):
     out = []
     for dashboard in Dashboard.for_user(user_id):
         item = dashboard.as_dict()
-        item.pop("config")
+        item["layout"] = _layout(item.pop("config"))
         out.append(item)
     return out
 

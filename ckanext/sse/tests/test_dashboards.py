@@ -113,6 +113,7 @@ def test_owner_can_create_show_list_update_and_delete(user, resource_id):
     listed = call("sse_dashboard_list", user)
     assert [d["id"] for d in listed] == [created["id"]]
     assert "config" not in listed[0]
+    assert listed[0]["layout"] == [["kpi", "text"], ["chart"]]
 
     updated = call("sse_dashboard_update", user, id=created["id"], title="Renamed")
     assert updated["title"] == "Renamed"

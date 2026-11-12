@@ -44,6 +44,11 @@ RELATIVE_WINDOWS = frozenset({
 })
 KPI_STYLES = frozenset({"number", "gauge", "change"})
 DATE_TYPES = frozenset({"date", "timestamp", "timestamptz"})
+NUMBER_TYPES = frozenset({
+    "int", "int2", "int4", "int8", "integer", "bigint", "smallint",
+    "numeric", "float4", "float8", "float", "real", "double precision",
+})
+FILTER_TYPES = ("value", "relative_date", "range")
 
 
 # Access
@@ -237,6 +242,13 @@ def _check_bindings(errors, path, bindings, fields, filters):
             and fields[column] not in DATE_TYPES
         ):
             errors.add(bpath, "relative date filters need a date or timestamp column")
+        if (
+            filters[filter_id] == "range"
+            and fields is not None
+            and column in fields
+            and fields[column] not in NUMBER_TYPES
+        ):
+            errors.add(bpath, "range filters need a number column")
 
 
 def _check_chart(errors, path, widget, resources, filters):
@@ -371,8 +383,8 @@ def _check_filters(errors, filters):
         if not _is_str(f.get("label"), MAX_LABEL_CHARS):
             errors.add(path + ".label", "is required")
         kind = f.get("type")
-        if kind not in ("value", "relative_date"):
-            errors.add(path + ".type", "must be value or relative_date")
+        if kind not in FILTER_TYPES:
+            errors.add(path + ".type", "must be value, relative_date or range")
             continue
         options = f.get("options")
         if not isinstance(options, list) or not 1 <= len(options) <= MAX_FILTER_OPTIONS:
@@ -393,6 +405,14 @@ def _check_filters(errors, filters):
                 value = option.get("value")
                 if not (_is_str(value, MAX_LABEL_CHARS) or _is_number(value)):
                     errors.add(opath + ".value", "is required")
+            elif kind == "range":
+                low, high = option.get("min"), option.get("max")
+                if low is None and high is None:
+                    errors.add(opath, "needs a minimum, a maximum or both")
+                elif (low is not None and not _is_number(low)) or (high is not None and not _is_number(high)):
+                    errors.add(opath, "minimum and maximum must be numbers")
+                elif low is not None and high is not None and low >= high:
+                    errors.add(opath, "minimum must be lower than maximum")
             elif option.get("window") not in RELATIVE_WINDOWS:
                 errors.add(opath + ".window", "must be one of " + ", ".join(sorted(RELATIVE_WINDOWS)))
         if f.get("default_option") not in option_ids:

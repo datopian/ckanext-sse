@@ -266,3 +266,29 @@ def test_chart_date_group_is_checked(user, resource_id):
     with pytest.raises(tk.ValidationError) as e:
         call("sse_dashboard_create", user, title="Not a date", config=config)
     assert "needs a date or timestamp dimension" in str(e.value)
+
+
+def test_range_filter_is_checked(user, resource_id):
+    config = config_for(resource_id)
+    config["filters"].append({
+        "id": "size", "label": "Size", "type": "range", "default_option": "all",
+        "options": [
+            {"id": "all", "label": "All", "all": True},
+            {"id": "small", "label": "Under 1", "max": 1},
+            {"id": "big", "label": "1 and over", "min": 1},
+        ],
+    })
+    config["rows"][1]["cells"][0]["filter_bindings"] = {"size": "mw"}
+    created = call("sse_dashboard_create", user, title="Ranges", config=config)
+    assert created["config"]["filters"][-1]["type"] == "range"
+
+    config["filters"][-1]["options"].append({"id": "bad", "label": "Bad", "min": 5, "max": 2})
+    with pytest.raises(tk.ValidationError) as e:
+        call("sse_dashboard_create", user, title="Bad range", config=config)
+    assert "minimum must be lower than maximum" in str(e.value)
+
+    config["filters"][-1]["options"].pop()
+    config["rows"][1]["cells"][0]["filter_bindings"] = {"size": "status"}
+    with pytest.raises(tk.ValidationError) as e:
+        call("sse_dashboard_create", user, title="Range on text", config=config)
+    assert "range filters need a number column" in str(e.value)

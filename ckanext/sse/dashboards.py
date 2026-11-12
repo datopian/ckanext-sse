@@ -609,7 +609,10 @@ def _with_package(dashboard, item=None):
 
 def _summary(dashboard):
     item = dashboard.as_dict()
-    item["layout"] = _layout(item.pop("config"))
+    config = item.pop("config")
+    item["layout"] = _layout(config)
+    # Which resources it reads, e.g. for a resource's "Insights that use this data".
+    item["resources"] = sorted({rid for rid, _ in _widget_names(config) if rid})
     return _with_package(dashboard, item)
 
 

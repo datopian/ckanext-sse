@@ -251,3 +251,18 @@ def test_dashboards_survive_the_account_being_deleted(user, resource_id):
     model.Session.remove()
 
     assert Dashboard.get(dashboard["id"]) is not None
+
+
+def test_chart_date_group_is_checked(user, resource_id):
+    config = config_for(resource_id)
+    chart = config["rows"][1]["cells"][0]
+    chart["query"]["date_group"] = "fortnight"
+    with pytest.raises(tk.ValidationError) as e:
+        call("sse_dashboard_create", user, title="Bad period", config=config)
+    assert "fortnight" not in str(e.value) and "date_group" in str(e.value)
+
+    chart["query"]["date_group"] = "month"
+    chart["query"]["dimension"] = "status"  # text, not a date
+    with pytest.raises(tk.ValidationError) as e:
+        call("sse_dashboard_create", user, title="Not a date", config=config)
+    assert "needs a date or timestamp dimension" in str(e.value)

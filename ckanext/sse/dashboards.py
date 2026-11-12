@@ -36,6 +36,8 @@ CHART_TYPES = frozenset({
 AGGREGATES = frozenset({"SUM", "AVG", "COUNT"})
 OPERATORS = frozenset({"=", "!=", ">", ">=", "<", "<="})
 SORT_BY = frozenset({"data", "labels"})
+# Periods a chart's date axis can be grouped by (date_trunc in the portal's SQL).
+DATE_GROUPS = frozenset({"day", "week", "month", "quarter", "year"})
 SORT_ORDER = frozenset({"ASC", "DESC"})
 RELATIVE_WINDOWS = frozenset({
     "last_7_days", "last_30_days", "last_12_months", "year_to_date",
@@ -252,6 +254,12 @@ def _check_chart(errors, path, widget, resources, filters):
     _check_column(errors, path + ".query.dimension", query.get("dimension"), fields)
     _check_column(errors, path + ".query.measure", query.get("measure"), fields)
     _check_column(errors, path + ".query.category", query.get("category"), fields, required=False)
+    date_group = query.get("date_group")
+    if date_group not in (None, ""):
+        if date_group not in DATE_GROUPS:
+            errors.add(path + ".query.date_group", "must be one of " + ", ".join(sorted(DATE_GROUPS)))
+        elif fields is not None and fields.get(query.get("dimension")) not in DATE_TYPES:
+            errors.add(path + ".query.date_group", "needs a date or timestamp dimension")
     if query.get("aggregate") not in (None, "") and query.get("aggregate") not in AGGREGATES:
         errors.add(path + ".query.aggregate", "must be one of SUM, AVG, COUNT or empty")
     _check_fixed_filters(errors, path + ".query.filters", query.get("filters"), fields)

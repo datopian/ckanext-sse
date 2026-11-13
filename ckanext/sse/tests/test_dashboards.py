@@ -30,7 +30,7 @@ def call(name, user=None, **data):
     return helpers.call_action(name, context, **data)
 
 
-def datastore_resource(owner, private=False, restricted=False):
+def datastore_resource(owner, private=False, restricted=False, geospatial=True):
     dataset = factories.Dataset(user=owner, private=private,
                                 owner_org=factories.Organization(user=owner)["id"])
     if restricted:
@@ -38,7 +38,8 @@ def datastore_resource(owner, private=False, restricted=False):
         helpers.call_action("package_patch", {"user": owner["name"]}, id=dataset["id"],
                             extras=[{"key": "is_restricted", "value": "true"}])
     resource = factories.Resource(package_id=dataset["id"], name="dispatch",
-                                  url="http://example.com/dispatch.csv")
+                                  url="http://example.com/dispatch.csv",
+                                  is_geospatial=str(geospatial))
     result = helpers.call_action(
         "datastore_create",
         resource_id=resource["id"],
@@ -48,9 +49,10 @@ def datastore_resource(owner, private=False, restricted=False):
             {"id": "dispatched_at", "type": "timestamp"},
             {"id": "lat", "type": "numeric"},
             {"id": "lon", "type": "numeric"},
+            {"id": "geometry", "type": "text"},
         ],
         records=[{"status": "Active", "mw": 1.5, "dispatched_at": "2026-11-01",
-                  "lat": 57.1, "lon": -2.1}],
+                  "lat": 57.1, "lon": -2.1, "geometry": "POINT (-2.1 57.1)"}],
         force=True,
     )
     return result["resource_id"]
@@ -253,6 +255,37 @@ def test_dashboards_survive_the_account_being_deleted(user, resource_id):
     model.Session.remove()
 
     assert Dashboard.get(dashboard["id"]) is not None
+
+
+def _map_config(resource_id, layer):
+    config = config_for(resource_id)
+    config["rows"][2]["cells"][0]["layers"] = [dict({"id": "l1", "resource_id": resource_id}, **layer)]
+    return config
+
+
+def test_shapes_layers_read_a_geometry_column(user, resource_id):
+    layer = {"kind": "shapes", "geometry": "geometry", "tooltip": ["status"],
+             "filters": [{"column": "mw", "operation": ">", "value": 1}],
+             "filter_bindings": {"status": "status"}}
+    call("sse_dashboard_create", user, title="Shapes", config=_map_config(resource_id, layer))
+
+    assert _errors(user, _map_config(resource_id, dict(layer, geometry="shape"))) == (
+        "rows[2].cells[0].layers[0].geometry: unknown column 'shape'")
+
+
+def test_map_layer_conditions_are_checked(user, resource_id):
+    layer = {"kind": "points", "lat": "lat", "lon": "lon",
+             "filters": [{"column": "nope", "operation": "=", "value": "x"}]}
+    assert _errors(user, _map_config(resource_id, layer)) == (
+        "rows[2].cells[0].layers[0].filters[0].column: unknown column 'nope'")
+
+
+def test_map_layers_need_geospatial_data(user):
+    resource_id = datastore_resource(factories.Sysadmin(password=PASSWORD), geospatial=False)
+    for layer in ({"kind": "points", "lat": "lat", "lon": "lon"},
+                  {"kind": "shapes", "geometry": "geometry"}):
+        assert "rows[2].cells[0].layers[0].resource_id: is not marked as geospatial data" in _errors(
+            user, _map_config(resource_id, layer))
 
 
 def test_chart_date_group_is_checked(user, resource_id):

@@ -257,6 +257,8 @@ class _Resources(object):
             "format": (resource.format or "").lower().replace(" ", ""),
             "url": resource.url or "",
             "fields": fields,
+            # Publishers mark data meant for maps; GeoJSON uploads are marked on creation.
+            "geospatial": tk.asbool(resource.extras.get("is_geospatial") or False),
         }
 
 
@@ -406,6 +408,12 @@ def _check_kpi(errors, path, widget, resources, filters):
     _check_bindings(errors, path + ".filter_bindings", widget.get("filter_bindings"), fields, filters)
 
 
+def _check_geospatial(errors, path, layer, resources):
+    info = resources.get(layer.get("resource_id"))
+    if "error" not in info and not info["geospatial"] and "geojson" not in info["format"]:
+        errors.add(path + ".resource_id", "is not marked as geospatial data")
+
+
 def _check_map(errors, path, widget, resources, filters):
     layers = widget.get("layers")
     if not isinstance(layers, list) or not 1 <= len(layers) <= MAX_MAP_LAYERS:
@@ -423,12 +431,19 @@ def _check_map(errors, path, widget, resources, filters):
             errors.add(lpath + ".tooltip", "must be a list of at most {}".format(MAX_TOOLTIP_FIELDS))
             tooltip = []
         kind = layer.get("kind")
-        if kind == "points":
+        if kind in ("points", "shapes"):
             fields = _check_tabular(errors, lpath, layer, resources)
-            _check_column(errors, lpath + ".lat", layer.get("lat"), fields)
-            _check_column(errors, lpath + ".lon", layer.get("lon"), fields)
+            if fields is not None:
+                _check_geospatial(errors, lpath, layer, resources)
+            if kind == "points":
+                _check_column(errors, lpath + ".lat", layer.get("lat"), fields)
+                _check_column(errors, lpath + ".lon", layer.get("lon"), fields)
+            else:
+                # A text column of WKT shapes, as DataPusher+ loads spatial files.
+                _check_column(errors, lpath + ".geometry", layer.get("geometry"), fields)
             for j, column in enumerate(tooltip):
                 _check_column(errors, "{}.tooltip[{}]".format(lpath, j), column, fields)
+            _check_fixed_filters(errors, lpath + ".filters", layer.get("filters"), fields)
             _check_bindings(errors, lpath + ".filter_bindings", layer.get("filter_bindings"), fields, filters)
         elif kind == "geojson":
             resource_id = layer.get("resource_id")
@@ -447,7 +462,7 @@ def _check_map(errors, path, widget, resources, filters):
             # GeoJSON properties are not known here; the column is only checked for shape.
             _check_bindings(errors, lpath + ".filter_bindings", layer.get("filter_bindings"), None, filters)
         else:
-            errors.add(lpath + ".kind", "must be points or geojson")
+            errors.add(lpath + ".kind", "must be points, shapes or geojson")
 
 
 def _check_text(errors, path, widget):

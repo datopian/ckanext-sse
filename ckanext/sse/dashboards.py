@@ -1,0 +1,1014 @@
+"""Dashboards: storage actions, access rules and config validation.
+
+A dashboard is a list of rows, each holding 1 to 3 widgets (chart, KPI card,
+map or text), plus dashboard-wide filters that widgets bind to by column.
+The portal builds the queries; this module keeps what is stored well formed
+and limited to data every signed-in user may read.
+"""
+import base64
+import binascii
+import json
+import re
+from datetime import datetime
+
+import ckan.plugins.toolkit as tk
+from ckan import model
+
+from .model import Dashboard, DashboardPreview, DashboardRedirect
+
+SCHEMA_VERSION = 1
+
+MAX_CONFIG_BYTES = 256 * 1024
+MAX_TITLE_CHARS = 200
+MAX_DESCRIPTION_CHARS = 1000
+MAX_LABEL_CHARS = 200
+MAX_TEXT_CHARS = 5000
+MAX_FILTERS = 10
+MAX_FILTER_OPTIONS = 50
+MAX_WIDGET_FILTERS = 20
+MAX_MAP_LAYERS = 10
+MAX_TOOLTIP_FIELDS = 10
+MAX_PREVIEW_BYTES = 512 * 1024
+
+ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+CHART_TYPES = frozenset({
+    "bar", "bar_horizontal", "bar_stacked", "bar_stacked_100",
+    "line", "area", "area_stacked", "scatter", "pie", "donut", "heatmap",
+})
+AGGREGATES = frozenset({"SUM", "AVG", "COUNT"})
+OPERATORS = frozenset({"=", "!=", ">", ">=", "<", "<="})
+SORT_BY = frozenset({"data", "labels"})
+# Periods a chart's date axis can be grouped by (date_trunc in the portal's SQL).
+DATE_GROUPS = frozenset({"day", "week", "month", "quarter", "year"})
+SORT_ORDER = frozenset({"ASC", "DESC"})
+RELATIVE_WINDOWS = frozenset({
+    "last_7_days", "last_30_days", "last_12_months", "year_to_date",
+})
+KPI_STYLES = frozenset({"number", "gauge", "change"})
+DATE_TYPES = frozenset({"date", "timestamp", "timestamptz"})
+NUMBER_TYPES = frozenset({
+    "int", "int2", "int4", "int8", "integer", "bigint", "smallint",
+    "numeric", "float4", "float8", "float", "real", "double precision",
+})
+FILTER_TYPES = ("value", "relative_date", "range")
+VISIBILITIES = frozenset({"private", "public"})
+
+
+# Access
+
+def _user_obj(context):
+    user_obj = context.get("auth_user_obj")
+    # check_access only fills auth_user_obj when auth is not skipped.
+    if user_obj is None and context.get("user"):
+        user_obj = model.User.by_name(context["user"])
+    if user_obj is None or getattr(user_obj, "is_anonymous", False):
+        return None
+    return user_obj
+
+
+def _signed_in(context):
+    if _user_obj(context) is None:
+        return {"success": False, "msg": tk._("Sign in to use dashboards")}
+    return {"success": True}
+
+
+def _can(action, context, package_id):
+    """Whether the context's user may run a CKAN check on a dataset."""
+    try:
+        tk.check_access(action, {"user": context.get("user"), "auth_user_obj": context.get("auth_user_obj")}, {"id": package_id})
+        return True
+    except (tk.NotAuthorized, tk.ObjectNotFound):
+        return False
+
+
+def _package_active(package_id):
+    package = model.Package.get(package_id)
+    return package is not None and package.state == "active"
+
+
+def _can_edit(context, dashboard):
+    """Personal dashboards: their owner. Showcased ones: the data asset's editors."""
+    user_obj = _user_obj(context)
+    if user_obj is None:
+        return False
+    if dashboard.package_id:
+        return _package_active(dashboard.package_id) and _can("package_update", context, dashboard.package_id)
+    return dashboard.owner_user_id == user_obj.id
+
+
+def _can_view(context, dashboard):
+    """Editors see everything; signed-in users who can see the data asset see its public dashboards."""
+    if _can_edit(context, dashboard):
+        return True
+    return (
+        dashboard.package_id is not None
+        and dashboard.visibility == "public"
+        and _user_obj(context) is not None
+        and _package_active(dashboard.package_id)
+        and _can("package_show", context, dashboard.package_id)
+    )
+
+
+def _dashboard_from(data_dict):
+    """By id, or by data asset (id or name) and slug."""
+    if data_dict.get("id"):
+        return Dashboard.get(data_dict["id"])
+    if data_dict.get("package_id") and data_dict.get("slug"):
+        package = model.Package.get(data_dict["package_id"])
+        if package is None:
+            return None
+        # An insight that moved to another data asset is still found by its old address.
+        return Dashboard.by_slug(package.id, data_dict["slug"]) or DashboardRedirect.target(package.id, data_dict["slug"])
+    return None
+
+
+def _auth_dashboard(check):
+    def auth(context, data_dict):
+        if _user_obj(context) is None:
+            return {"success": False, "msg": tk._("Sign in to use dashboards")}
+        dashboard = _dashboard_from(data_dict)
+        # Unknown dashboards are left to the action, which answers 404.
+        if dashboard is None:
+            return {"success": True}
+        return {"success": check(context, dashboard)}
+    return auth
+
+
+def auth_create(context, data_dict):
+    return _signed_in(context)
+
+
+def auth_list(context, data_dict):
+    package_id = data_dict.get("package_id")
+    if package_id:
+        # A data asset's public dashboards are listed to whoever can see it.
+        return {"success": _package_active(package_id) and _can("package_show", context, package_id)}
+    result = _signed_in(context)
+    if not result["success"]:
+        return result
+    user_id = data_dict.get("user_id")
+    if user_id and user_id != _user_obj(context).id:
+        return {"success": False}
+    return result
+
+
+auth_show = _auth_dashboard(_can_view)
+auth_update = _auth_dashboard(_can_edit)
+auth_delete = _auth_dashboard(_can_edit)
+auth_preview_update = _auth_dashboard(_can_edit)
+auth_preview_show = _auth_dashboard(_can_view)
+
+
+
+def auth_showcase(context, data_dict):
+    """The dashboard's owner, and an editor of the target data asset."""
+    if _user_obj(context) is None:
+        return {"success": False, "msg": tk._("Sign in to use dashboards")}
+    dashboard = _dashboard_from(data_dict)
+    # Its owner, or for one already showcased its editors, who then get the
+    # action's clear "already showcased" answer instead of a bare refusal.
+    if dashboard is not None and not _can_edit(context, dashboard):
+        return {"success": False}
+    package_id = data_dict.get("package_id")
+    if package_id and not _can("package_update", context, package_id):
+        return {"success": False, "msg": tk._("You cannot edit this data asset")}
+    return {"success": True}
+
+
+def auth_move(context, data_dict):
+    """An editor of the data asset it is in, and of the one it moves to."""
+    if _user_obj(context) is None:
+        return {"success": False, "msg": tk._("Sign in to use dashboards")}
+    dashboard = _dashboard_from(data_dict)
+    if dashboard is not None and not _can_edit(context, dashboard):
+        return {"success": False}
+    package_id = data_dict.get("package_id")
+    if package_id and not _can("package_update", context, package_id):
+        return {"success": False, "msg": tk._("You cannot edit this data asset")}
+    return {"success": True}
+
+
+def auth_reorder(context, data_dict):
+    package_id = data_dict.get("package_id")
+    return {"success": bool(package_id) and _user_obj(context) is not None and _can("package_update", context, package_id)}
+
+
+def auth_showcase_targets(context, data_dict):
+    return _signed_in(context)
+
+
+# Config validation
+
+class _Errors(list):
+    def add(self, path, msg):
+        self.append("{}: {}".format(path, msg))
+
+
+def _is_str(value, max_len=None, required=True):
+    if value is None or value == "":
+        return not required
+    return isinstance(value, str) and (max_len is None or len(value) <= max_len)
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _check_id(errors, path, value, seen):
+    if not isinstance(value, str) or not ID_RE.match(value):
+        errors.add(path, "must be 1-64 letters, digits, '-' or '_'")
+    elif value in seen:
+        errors.add(path, "duplicate id '{}'".format(value))
+    else:
+        seen.add(value)
+
+
+class _Resources(object):
+    """Looks up each referenced resource once."""
+
+    def __init__(self):
+        self._cache = {}
+
+    def get(self, resource_id):
+        if resource_id not in self._cache:
+            self._cache[resource_id] = self._load(resource_id)
+        return self._cache[resource_id]
+
+    @staticmethod
+    def _load(resource_id):
+        resource = model.Resource.get(resource_id)
+        if resource is None or resource.state != "active":
+            return {"error": "resource not found"}
+        package = resource.package
+        if not eligible_package(package):
+            return {"error": "data is not available to every signed-in user"}
+        fields = None
+        if resource.extras.get("datastore_active") in (True, "true", "True"):
+            try:
+                result = tk.get_action("datastore_search")(
+                    {"ignore_auth": True},
+                    {"resource_id": resource.id, "limit": 0},
+                )
+                fields = {f["id"]: f["type"] for f in result["fields"]}
+            except (KeyError, tk.ObjectNotFound, tk.ValidationError):
+                fields = None
+        return {
+            "format": (resource.format or "").lower().replace(" ", ""),
+            "url": resource.url or "",
+            "fields": fields,
+        }
+
+
+def eligible_package(package):
+    """Data every signed-in user may read: active, public, not restricted."""
+    if package is None or package.state != "active" or package.private:
+        return False
+    return not tk.asbool(package.extras.get("is_restricted") or False)
+
+
+def _check_tabular(errors, path, widget, resources):
+    """Resource must be in the DataStore; returns its fields or None."""
+    resource_id = widget.get("resource_id")
+    if not _is_str(resource_id, 100):
+        errors.add(path + ".resource_id", "is required")
+        return None
+    info = resources.get(resource_id)
+    if "error" in info:
+        errors.add(path + ".resource_id", info["error"])
+        return None
+    if info["fields"] is None:
+        errors.add(path + ".resource_id", "has no tabular data in the DataStore")
+        return None
+    return info["fields"]
+
+
+def _check_column(errors, path, column, fields, required=True):
+    if column is None or column == "":
+        if required:
+            errors.add(path, "is required")
+        return
+    if not isinstance(column, str):
+        errors.add(path, "must be a column name")
+    elif fields is not None and column not in fields:
+        errors.add(path, "unknown column '{}'".format(column))
+
+
+def _check_fixed_filters(errors, path, filters, fields):
+    if filters is None:
+        return
+    if not isinstance(filters, list) or len(filters) > MAX_WIDGET_FILTERS:
+        errors.add(path, "must be a list of at most {}".format(MAX_WIDGET_FILTERS))
+        return
+    for i, f in enumerate(filters):
+        fpath = "{}[{}]".format(path, i)
+        if not isinstance(f, dict):
+            errors.add(fpath, "must be an object")
+            continue
+        _check_column(errors, fpath + ".column", f.get("column"), fields)
+        if f.get("operation") not in OPERATORS:
+            errors.add(fpath + ".operation", "must be one of " + ", ".join(sorted(OPERATORS)))
+        value = f.get("value")
+        if not (_is_str(value, MAX_LABEL_CHARS) or _is_number(value)):
+            errors.add(fpath + ".value", "is required")
+
+
+def _check_bindings(errors, path, bindings, fields, filters):
+    if bindings is None:
+        return
+    if not isinstance(bindings, dict):
+        errors.add(path, "must be an object")
+        return
+    for filter_id, column in bindings.items():
+        bpath = "{}.{}".format(path, filter_id)
+        if filter_id not in filters:
+            errors.add(bpath, "unknown dashboard filter")
+            continue
+        _check_column(errors, bpath, column, fields)
+        if (
+            filters[filter_id] == "relative_date"
+            and fields is not None
+            and column in fields
+            and fields[column] not in DATE_TYPES
+        ):
+            errors.add(bpath, "relative date filters need a date or timestamp column")
+        if (
+            filters[filter_id] == "range"
+            and fields is not None
+            and column in fields
+            and fields[column] not in NUMBER_TYPES
+        ):
+            errors.add(bpath, "range filters need a number column")
+
+
+def _check_chart(errors, path, widget, resources, filters):
+    fields = _check_tabular(errors, path, widget, resources)
+    query = widget.get("query")
+    chart = widget.get("chart")
+    if not isinstance(query, dict):
+        errors.add(path + ".query", "must be an object")
+        query = {}
+    if not isinstance(chart, dict):
+        errors.add(path + ".chart", "must be an object")
+        chart = {}
+    if chart.get("chartType") not in CHART_TYPES:
+        errors.add(path + ".chart.chartType", "must be one of " + ", ".join(sorted(CHART_TYPES)))
+    _check_column(errors, path + ".query.dimension", query.get("dimension"), fields)
+    _check_column(errors, path + ".query.measure", query.get("measure"), fields)
+    _check_column(errors, path + ".query.category", query.get("category"), fields, required=False)
+    date_group = query.get("date_group")
+    if date_group not in (None, ""):
+        if date_group not in DATE_GROUPS:
+            errors.add(path + ".query.date_group", "must be one of " + ", ".join(sorted(DATE_GROUPS)))
+        elif fields is not None and fields.get(query.get("dimension")) not in DATE_TYPES:
+            errors.add(path + ".query.date_group", "needs a date or timestamp dimension")
+    if query.get("aggregate") not in (None, "") and query.get("aggregate") not in AGGREGATES:
+        errors.add(path + ".query.aggregate", "must be one of SUM, AVG, COUNT or empty")
+    _check_fixed_filters(errors, path + ".query.filters", query.get("filters"), fields)
+    sorting = chart.get("sorting") or {}
+    if not isinstance(sorting, dict):
+        errors.add(path + ".chart.sorting", "must be an object")
+    else:
+        if sorting.get("by") not in (None, "") and sorting.get("by") not in SORT_BY:
+            errors.add(path + ".chart.sorting.by", "must be data or labels")
+        if sorting.get("order") not in (None, "") and sorting.get("order") not in SORT_ORDER:
+            errors.add(path + ".chart.sorting.order", "must be ASC or DESC")
+    if not _is_str(widget.get("title"), MAX_LABEL_CHARS, required=False):
+        errors.add(path + ".title", "is too long")
+    _check_bindings(errors, path + ".filter_bindings", widget.get("filter_bindings"), fields, filters)
+
+
+def _check_kpi(errors, path, widget, resources, filters):
+    fields = _check_tabular(errors, path, widget, resources)
+    query = widget.get("query")
+    if not isinstance(query, dict):
+        errors.add(path + ".query", "must be an object")
+        query = {}
+    _check_column(errors, path + ".query.measure", query.get("measure"), fields)
+    if query.get("aggregate") not in AGGREGATES:
+        errors.add(path + ".query.aggregate", "must be one of SUM, AVG, COUNT")
+    _check_fixed_filters(errors, path + ".query.filters", query.get("filters"), fields)
+    if not _is_str(widget.get("label"), MAX_LABEL_CHARS):
+        errors.add(path + ".label", "is required")
+    style = widget.get("style")
+    if not isinstance(style, dict) or style.get("kind") not in KPI_STYLES:
+        errors.add(path + ".style.kind", "must be one of number, gauge, change")
+    else:
+        for key in ("min", "max", "target", "reference"):
+            if style.get(key) is not None and not _is_number(style.get(key)):
+                errors.add(path + ".style." + key, "must be a number")
+        if style["kind"] == "gauge" and style.get("target") is None and (
+            style.get("min") is None or style.get("max") is None
+        ):
+            errors.add(path + ".style", "a gauge needs a minimum and maximum, or a target")
+        if style["kind"] == "change" and style.get("reference") is None:
+            errors.add(path + ".style.reference", "is required")
+    _check_bindings(errors, path + ".filter_bindings", widget.get("filter_bindings"), fields, filters)
+
+
+def _check_map(errors, path, widget, resources, filters):
+    layers = widget.get("layers")
+    if not isinstance(layers, list) or not 1 <= len(layers) <= MAX_MAP_LAYERS:
+        errors.add(path + ".layers", "must be a list of 1 to {}".format(MAX_MAP_LAYERS))
+        return
+    seen = set()
+    for i, layer in enumerate(layers):
+        lpath = "{}.layers[{}]".format(path, i)
+        if not isinstance(layer, dict):
+            errors.add(lpath, "must be an object")
+            continue
+        _check_id(errors, lpath + ".id", layer.get("id"), seen)
+        tooltip = layer.get("tooltip") or []
+        if not isinstance(tooltip, list) or len(tooltip) > MAX_TOOLTIP_FIELDS:
+            errors.add(lpath + ".tooltip", "must be a list of at most {}".format(MAX_TOOLTIP_FIELDS))
+            tooltip = []
+        kind = layer.get("kind")
+        if kind == "points":
+            fields = _check_tabular(errors, lpath, layer, resources)
+            _check_column(errors, lpath + ".lat", layer.get("lat"), fields)
+            _check_column(errors, lpath + ".lon", layer.get("lon"), fields)
+            for j, column in enumerate(tooltip):
+                _check_column(errors, "{}.tooltip[{}]".format(lpath, j), column, fields)
+            _check_bindings(errors, lpath + ".filter_bindings", layer.get("filter_bindings"), fields, filters)
+        elif kind == "geojson":
+            resource_id = layer.get("resource_id")
+            if not _is_str(resource_id, 100):
+                errors.add(lpath + ".resource_id", "is required")
+                continue
+            info = resources.get(resource_id)
+            if "error" in info:
+                errors.add(lpath + ".resource_id", info["error"])
+                continue
+            if "geojson" not in info["format"] and not info["url"].lower().endswith(".geojson"):
+                errors.add(lpath + ".resource_id", "is not a GeoJSON resource")
+            for j, prop in enumerate(tooltip):
+                if not _is_str(prop, MAX_LABEL_CHARS):
+                    errors.add("{}.tooltip[{}]".format(lpath, j), "must be a property name")
+            # GeoJSON properties are not known here; the column is only checked for shape.
+            _check_bindings(errors, lpath + ".filter_bindings", layer.get("filter_bindings"), None, filters)
+        else:
+            errors.add(lpath + ".kind", "must be points or geojson")
+
+
+def _check_text(errors, path, widget):
+    if not _is_str(widget.get("markdown"), MAX_TEXT_CHARS):
+        errors.add(path + ".markdown", "is required, up to {} characters".format(MAX_TEXT_CHARS))
+
+
+def _check_filters(errors, filters):
+    """Returns {filter_id: type} for the widgets to bind against."""
+    if filters is None:
+        return {}
+    if not isinstance(filters, list) or len(filters) > MAX_FILTERS:
+        errors.add("filters", "must be a list of at most {}".format(MAX_FILTERS))
+        return {}
+    types = {}
+    seen = set()
+    for i, f in enumerate(filters):
+        path = "filters[{}]".format(i)
+        if not isinstance(f, dict):
+            errors.add(path, "must be an object")
+            continue
+        _check_id(errors, path + ".id", f.get("id"), seen)
+        if not _is_str(f.get("label"), MAX_LABEL_CHARS):
+            errors.add(path + ".label", "is required")
+        kind = f.get("type")
+        if kind not in FILTER_TYPES:
+            errors.add(path + ".type", "must be value, relative_date or range")
+            continue
+        options = f.get("options")
+        if not isinstance(options, list) or not 1 <= len(options) <= MAX_FILTER_OPTIONS:
+            errors.add(path + ".options", "must be a list of 1 to {}".format(MAX_FILTER_OPTIONS))
+            continue
+        option_ids = set()
+        for j, option in enumerate(options):
+            opath = "{}.options[{}]".format(path, j)
+            if not isinstance(option, dict):
+                errors.add(opath, "must be an object")
+                continue
+            _check_id(errors, opath + ".id", option.get("id"), option_ids)
+            if not _is_str(option.get("label"), MAX_LABEL_CHARS):
+                errors.add(opath + ".label", "is required")
+            if option.get("all") is True:
+                continue
+            if kind == "value":
+                value = option.get("value")
+                if not (_is_str(value, MAX_LABEL_CHARS) or _is_number(value)):
+                    errors.add(opath + ".value", "is required")
+            elif kind == "range":
+                low, high = option.get("min"), option.get("max")
+                if low is None and high is None:
+                    errors.add(opath, "needs a minimum, a maximum or both")
+                elif (low is not None and not _is_number(low)) or (high is not None and not _is_number(high)):
+                    errors.add(opath, "minimum and maximum must be numbers")
+                elif low is not None and high is not None and low >= high:
+                    errors.add(opath, "minimum must be lower than maximum")
+            elif option.get("window") not in RELATIVE_WINDOWS:
+                errors.add(opath + ".window", "must be one of " + ", ".join(sorted(RELATIVE_WINDOWS)))
+        if f.get("default_option") not in option_ids:
+            errors.add(path + ".default_option", "must be one of the filter's option ids")
+        if isinstance(f.get("id"), str):
+            types[f["id"]] = kind
+    return types
+
+
+def validate_config(config):
+    """Raise ValidationError listing every problem in a dashboard config."""
+    errors = _Errors()
+    if not isinstance(config, dict):
+        raise tk.ValidationError({"config": ["must be an object"]})
+    if len(json.dumps(config)) > MAX_CONFIG_BYTES:
+        raise tk.ValidationError({"config": ["is larger than {} bytes".format(MAX_CONFIG_BYTES)]})
+    if config.get("schema_version") != SCHEMA_VERSION:
+        errors.add("schema_version", "must be {}".format(SCHEMA_VERSION))
+
+    filters = _check_filters(errors, config.get("filters"))
+    resources = _Resources()
+
+    rows = config.get("rows")
+    if not isinstance(rows, list):
+        errors.add("rows", "must be a list")
+        rows = []
+    row_ids, widget_ids = set(), set()
+    for i, row in enumerate(rows):
+        rpath = "rows[{}]".format(i)
+        if not isinstance(row, dict):
+            errors.add(rpath, "must be an object")
+            continue
+        _check_id(errors, rpath + ".id", row.get("id"), row_ids)
+        columns = row.get("columns")
+        if columns not in (1, 2, 3):
+            errors.add(rpath + ".columns", "must be 1, 2 or 3")
+            continue
+        cells = row.get("cells")
+        if not isinstance(cells, list) or len(cells) != columns:
+            errors.add(rpath + ".cells", "must have one entry per column")
+            continue
+        for j, widget in enumerate(cells):
+            wpath = "{}.cells[{}]".format(rpath, j)
+            if widget is None:
+                continue
+            if not isinstance(widget, dict):
+                errors.add(wpath, "must be a widget or null")
+                continue
+            _check_id(errors, wpath + ".id", widget.get("id"), widget_ids)
+            kind = widget.get("type")
+            if kind == "chart":
+                _check_chart(errors, wpath, widget, resources, filters)
+            elif kind == "kpi":
+                _check_kpi(errors, wpath, widget, resources, filters)
+            elif kind == "map":
+                if columns == 3:
+                    errors.add(wpath, "maps can only be placed in 1 or 2 column rows")
+                _check_map(errors, wpath, widget, resources, filters)
+            elif kind == "text":
+                _check_text(errors, wpath, widget)
+            else:
+                errors.add(wpath + ".type", "must be chart, kpi, map or text")
+
+    if errors:
+        raise tk.ValidationError({"config": list(errors)})
+
+
+def _check_texts(data_dict, require_title):
+    errors = {}
+    title = data_dict.get("title")
+    if require_title or "title" in data_dict:
+        if not isinstance(title, str) or not title.strip() or len(title) > MAX_TITLE_CHARS:
+            errors["title"] = ["is required, up to {} characters".format(MAX_TITLE_CHARS)]
+    description = data_dict.get("description")
+    if description is not None and (
+        not isinstance(description, str) or len(description) > MAX_DESCRIPTION_CHARS
+    ):
+        errors["description"] = ["must be up to {} characters".format(MAX_DESCRIPTION_CHARS)]
+    if errors:
+        raise tk.ValidationError(errors)
+
+
+def _parse_config(data_dict):
+    config = data_dict.get("config")
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except ValueError:
+            raise tk.ValidationError({"config": ["is not valid JSON"]})
+    return config
+
+
+def _require_user(context):
+    user_obj = _user_obj(context)
+    if user_obj is None:
+        raise tk.NotAuthorized(tk._("Sign in to use dashboards"))
+    return user_obj
+
+
+def _get_or_404(data_dict):
+    dashboard = _dashboard_from(data_dict)
+    if dashboard is None:
+        tk.get_or_bust(data_dict, "id")  # a clear "Missing value" when neither id nor slug was given
+        raise tk.ObjectNotFound(tk._("Dashboard not found"))
+    # A deleted data asset's dashboards are gone with it.
+    if dashboard.package_id and not _package_active(dashboard.package_id):
+        raise tk.ObjectNotFound(tk._("Dashboard not found"))
+    return dashboard
+
+
+def _with_package(dashboard, item=None):
+    """A dashboard as a dict, with its data asset's names for links."""
+    item = item if item is not None else dashboard.as_dict()
+    if dashboard.package_id:
+        package = model.Package.get(dashboard.package_id)
+        if package is not None:
+            org = model.Group.get(package.owner_org) if package.owner_org else None
+            item["package"] = {
+                "id": package.id,
+                "name": package.name,
+                "title": package.title or package.name,
+                "organization": org.name if org else None,
+            }
+    return item
+
+
+def _summary(dashboard, previews=None):
+    item = dashboard.as_dict()
+    # When its card preview was taken, if it has one.
+    item["preview_at"] = (previews or {}).get(dashboard.id)
+    config = item.pop("config")
+    item["layout"] = _layout(config)
+    # Which resources it reads, e.g. for a resource's "Insights that use this data".
+    item["resources"] = sorted({rid for rid, _ in _widget_names(config) if rid})
+    return _with_package(dashboard, item)
+
+
+# Actions
+
+def dashboard_create(context, data_dict):
+    """Create a personal dashboard for the signed-in user.
+
+    :param title: up to 200 characters
+    :param description: optional, up to 1000 characters
+    :param config: the dashboard layout, widgets and filters (object or JSON)
+    """
+    tk.check_access("sse_dashboard_create", context, data_dict)
+    _check_texts(data_dict, require_title=True)
+    config = _parse_config(data_dict)
+    validate_config(config)
+
+    user_id = _require_user(context).id
+    now = datetime.utcnow()
+    dashboard = Dashboard(
+        title=data_dict["title"].strip(),
+        description=data_dict.get("description") or None,
+        owner_user_id=user_id,
+        config=config,
+        created_by=user_id,
+        updated_by=user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    model.Session.add(dashboard)
+    model.Session.commit()
+    return dashboard.as_dict()
+
+
+@tk.side_effect_free
+def dashboard_show(context, data_dict):
+    """Show a dashboard.
+
+    :param id: the dashboard id
+    :param package_id: with ``slug``, instead of ``id``: a showcased
+        dashboard by its data asset (id or name) and slug
+    :param slug: see ``package_id``
+    """
+    tk.check_access("sse_dashboard_show", context, data_dict)
+    dashboard = _get_or_404(data_dict)
+    item = _with_package(dashboard)
+    item["can_edit"] = _can_edit(context, dashboard)
+    item["preview_at"] = DashboardPreview.taken_at([dashboard.id]).get(dashboard.id)
+    return item
+
+
+def _layout(config):
+    rows = (config or {}).get("rows") or []
+    return [
+        [cell.get("type") if isinstance(cell, dict) else None for cell in (row.get("cells") or [])]
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+@tk.side_effect_free
+def dashboard_list(context, data_dict):
+    """List dashboards. Configs are left out; ``sse_dashboard_show`` returns
+    them. Each item has a ``layout`` instead: the widget type in each cell, row
+    by row (``None`` for an empty cell), enough to draw a thumbnail.
+
+    With no parameters: the signed-in user's personal dashboards, most recently
+    updated first.
+
+    :param package_id: a data asset's (id or name) showcased dashboards, in
+        order: all of them for its editors, the public ones for anyone else
+        who can see it. Each item says whether the caller ``can_edit`` it.
+    :param showcased: true for every showcased dashboard the caller can edit
+    :param user_id: sysadmins only, list another user's personal dashboards
+    """
+    tk.check_access("sse_dashboard_list", context, data_dict)
+    if data_dict.get("package_id"):
+        package = model.Package.get(data_dict["package_id"])
+        editor = _user_obj(context) is not None and _can("package_update", context, package.id)
+        # Public ones are listed to anyone who can see the data asset, even
+        # signed out (its page links them); opening one needs signing in.
+        listed = [d for d in Dashboard.for_package(package.id) if editor or d.visibility == "public"]
+        previews = DashboardPreview.taken_at(d.id for d in listed)
+        return [dict(_summary(d, previews), can_edit=editor) for d in listed]
+    if tk.asbool(data_dict.get("showcased")):
+        _require_user(context)
+        editable = {}
+        listed = []
+        for d in Dashboard.showcased():
+            if d.package_id not in editable:
+                editable[d.package_id] = _package_active(d.package_id) and _can("package_update", context, d.package_id)
+            if editable[d.package_id]:
+                listed.append(d)
+        previews = DashboardPreview.taken_at(d.id for d in listed)
+        out = [dict(_summary(d, previews), can_edit=True) for d in listed]
+        return sorted(out, key=lambda x: x["updated_at"], reverse=True)
+    user_id = data_dict.get("user_id") or _require_user(context).id
+    listed = Dashboard.for_user(user_id)
+    previews = DashboardPreview.taken_at(d.id for d in listed)
+    return [_summary(d, previews) for d in listed]
+
+
+def dashboard_update(context, data_dict):
+    """Update a dashboard. Only the fields passed are changed.
+
+    :param id: the dashboard id
+    :param title: optional
+    :param description: optional
+    :param config: optional, replaces the whole config
+    """
+    tk.check_access("sse_dashboard_update", context, data_dict)
+    dashboard = _get_or_404(data_dict)
+    _check_texts(data_dict, require_title=False)
+    if "config" in data_dict:
+        config = _parse_config(data_dict)
+        validate_config(config)
+        dashboard.config = config
+    if "title" in data_dict:
+        dashboard.title = data_dict["title"].strip()
+    if "description" in data_dict:
+        dashboard.description = data_dict.get("description") or None
+    if "visibility" in data_dict:
+        if not dashboard.package_id:
+            raise tk.ValidationError({"visibility": ["only applies to dashboards showcased in a data asset"]})
+        if data_dict["visibility"] not in VISIBILITIES:
+            raise tk.ValidationError({"visibility": ["must be private or public"]})
+        dashboard.visibility = data_dict["visibility"]
+    dashboard.updated_by = _require_user(context).id
+    dashboard.updated_at = datetime.utcnow()
+    model.Session.commit()
+    return dashboard.as_dict()
+
+
+def dashboard_delete(context, data_dict):
+    """Delete a dashboard permanently.
+
+    :param id: the dashboard id
+    """
+    tk.check_access("sse_dashboard_delete", context, data_dict)
+    dashboard = _get_or_404(data_dict)
+    model.Session.delete(dashboard)
+    model.Session.commit()
+
+
+def _widget_names(config):
+    """Each widget or map layer that reads a resource: (resource_id, name to show)."""
+    for row in (config or {}).get("rows") or []:
+        for cell in (row or {}).get("cells") or []:
+            if not isinstance(cell, dict):
+                continue
+            kind = cell.get("type")
+            if kind == "chart":
+                yield cell.get("resource_id"), cell.get("title") or "Untitled chart"
+            elif kind == "kpi":
+                yield cell.get("resource_id"), cell.get("label") or "Key figure"
+            elif kind == "map":
+                for i, layer in enumerate(cell.get("layers") or []):
+                    yield (layer or {}).get("resource_id"), "Map layer {}".format(i + 1)
+
+
+def _slug_for(package_id, title):
+    base = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")[:80] or "dashboard"
+    slug, n = base, 2
+    while Dashboard.by_slug(package_id, slug) is not None:
+        slug, n = "{}-{}".format(base, n), n + 1
+    return slug
+
+
+def dashboard_showcase(context, data_dict):
+    """Move a personal dashboard into a data asset. It leaves My dashboards,
+    starts private, and from then on belongs to the data asset's editors. It
+    cannot be moved back.
+
+    :param id: the dashboard id (must be the caller's personal dashboard)
+    :param package_id: the data asset (id or name); the caller must be able to edit it
+    """
+    tk.check_access("sse_dashboard_showcase", context, data_dict)
+    dashboard = _get_or_404({"id": tk.get_or_bust(data_dict, "id")})
+    if dashboard.package_id or not dashboard.owner_user_id:
+        raise tk.ValidationError({"id": ["is already showcased in a data asset"]})
+    package = model.Package.get(tk.get_or_bust(data_dict, "package_id"))
+    if package is None or package.state != "active":
+        raise tk.ObjectNotFound(tk._("Data asset not found"))
+
+    _check_open_data(dashboard)
+    dashboard.owner_user_id = None
+    _place_in(dashboard, package, _require_user(context).id)
+    model.Session.commit()
+    return _with_package(dashboard)
+
+
+def _check_open_data(dashboard):
+    """Every widget must use data every registered user can read; name the ones that do not."""
+    resources = _Resources()
+    blocked = sorted({name for rid, name in _widget_names(dashboard.config) if rid and "error" in resources.get(rid)})
+    if blocked:
+        raise tk.ValidationError({
+            "config": ["These widgets use data that is not available to every registered user: " + ", ".join(blocked)]
+        })
+
+
+def _place_in(dashboard, package, user_id):
+    """Put a dashboard last in a data asset's insights, private, with a free slug."""
+    existing = [d for d in Dashboard.for_package(package.id) if d.id != dashboard.id]
+    dashboard.package_id = package.id
+    dashboard.visibility = "private"
+    dashboard.slug = _slug_for(package.id, dashboard.title)
+    dashboard.position = (max(d.position for d in existing) + 1) if existing else 0
+    dashboard.updated_by = user_id
+    dashboard.updated_at = datetime.utcnow()
+
+
+def dashboard_move(context, data_dict):
+    """Move a showcased dashboard to another data asset. It starts private
+    there, and its old address keeps leading to it.
+
+    :param id: the dashboard id
+    :param package_id: the data asset (id or name) to move it to; the caller
+        must be able to edit both
+    """
+    tk.check_access("sse_dashboard_move", context, data_dict)
+    dashboard = _get_or_404({"id": tk.get_or_bust(data_dict, "id")})
+    if not dashboard.package_id:
+        raise tk.ValidationError({"id": ["is not showcased in a data asset"]})
+    package = model.Package.get(tk.get_or_bust(data_dict, "package_id"))
+    if package is None or package.state != "active":
+        raise tk.ObjectNotFound(tk._("Data asset not found"))
+    if package.id == dashboard.package_id:
+        raise tk.ValidationError({"package_id": ["is the data asset it is already in"]})
+    _check_open_data(dashboard)
+    DashboardRedirect.remember(dashboard.package_id, dashboard.slug, dashboard.id)
+    _place_in(dashboard, package, _require_user(context).id)
+    model.Session.commit()
+    return _with_package(dashboard)
+
+
+def dashboard_reorder(context, data_dict):
+    """Set the order of a data asset's dashboards.
+
+    :param package_id: the data asset (id or name)
+    :param order: every dashboard id of the data asset, in the new order
+    """
+    tk.check_access("sse_dashboard_reorder", context, data_dict)
+    package = model.Package.get(tk.get_or_bust(data_dict, "package_id"))
+    if package is None or package.state != "active":
+        raise tk.ObjectNotFound(tk._("Data asset not found"))
+    order = data_dict.get("order")
+    dashboards = {d.id: d for d in Dashboard.for_package(package.id)}
+    if not isinstance(order, list) or sorted(order) != sorted(dashboards):
+        raise tk.ValidationError({"order": ["must list each of the data asset's dashboards once"]})
+    for position, dashboard_id in enumerate(order):
+        dashboards[dashboard_id].position = position
+    model.Session.commit()
+    return [d.id for d in Dashboard.for_package(package.id)]
+
+
+@tk.side_effect_free
+def dashboard_showcase_targets(context, data_dict):
+    """Data assets the caller can edit, to showcase a dashboard in.
+
+    :param q: optional search text
+    """
+    tk.check_access("sse_dashboard_showcase_targets", context, data_dict)
+    user_obj = _require_user(context)
+    search = {"q": data_dict.get("q") or "", "rows": 20, "include_private": True, "sort": "title_string asc"}
+    if not user_obj.sysadmin:
+        orgs = tk.get_action("organization_list_for_user")(
+            {"user": user_obj.name, "ignore_auth": True}, {"id": user_obj.id, "permission": "update_dataset"}
+        )
+        if not orgs:
+            return []
+        search["fq"] = "owner_org:({})".format(" OR ".join(o["id"] for o in orgs))
+    result = tk.get_action("package_search")({"user": user_obj.name}, search)
+    return [
+        {
+            "id": p["id"],
+            "name": p["name"],
+            "title": p.get("title") or p["name"],
+            "organization": (p.get("organization") or {}).get("title") or "",
+            "private": p.get("private", False),
+        }
+        for p in result["results"]
+        if _can("package_update", {"user": user_obj.name}, p["id"])
+    ]
+
+
+def _image_type(data):
+    """The image's type from its first bytes: WebP, PNG or JPEG only."""
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return None
+
+
+def dashboard_preview_update(context, data_dict):
+    """Store the screenshot shown on a dashboard's card, replacing any before.
+
+    :param id: the dashboard id
+    :param image: the image, base64 encoded (WebP, PNG or JPEG, up to 512 KB)
+    """
+    tk.check_access("sse_dashboard_preview_update", context, data_dict)
+    dashboard = _get_or_404(data_dict)
+    encoded = data_dict.get("image")
+    if not isinstance(encoded, str) or len(encoded) > MAX_PREVIEW_BYTES * 4 // 3 + 4:
+        raise tk.ValidationError({"image": ["must be a base64 image up to 512 KB"]})
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise tk.ValidationError({"image": ["must be base64 encoded"]})
+    mimetype = _image_type(data)
+    if not mimetype:
+        raise tk.ValidationError({"image": ["must be a WebP, PNG or JPEG image"]})
+    preview = DashboardPreview.get(dashboard.id)
+    if preview is None:
+        preview = DashboardPreview(dashboard_id=dashboard.id)
+        model.Session.add(preview)
+    preview.mimetype = mimetype
+    preview.image = data
+    preview.updated_at = datetime.utcnow()
+    model.Session.commit()
+    return {"id": dashboard.id, "preview_at": preview.updated_at.isoformat()}
+
+
+@tk.side_effect_free
+def dashboard_preview_show(context, data_dict):
+    """A dashboard's card screenshot.
+
+    :param id: the dashboard id
+    :returns: ``mimetype``, ``image`` (base64) and ``preview_at``
+    """
+    tk.check_access("sse_dashboard_preview_show", context, data_dict)
+    dashboard = _get_or_404(data_dict)
+    preview = DashboardPreview.get(dashboard.id)
+    if preview is None:
+        raise tk.ObjectNotFound("This dashboard has no preview")
+    return {
+        "mimetype": preview.mimetype,
+        "image": base64.b64encode(preview.image).decode("ascii"),
+        "preview_at": preview.updated_at.isoformat(),
+    }
+
+
+def get_actions():
+    return {
+        "sse_dashboard_create": dashboard_create,
+        "sse_dashboard_show": dashboard_show,
+        "sse_dashboard_list": dashboard_list,
+        "sse_dashboard_update": dashboard_update,
+        "sse_dashboard_delete": dashboard_delete,
+        "sse_dashboard_showcase": dashboard_showcase,
+        "sse_dashboard_move": dashboard_move,
+        "sse_dashboard_reorder": dashboard_reorder,
+        "sse_dashboard_showcase_targets": dashboard_showcase_targets,
+        "sse_dashboard_preview_update": dashboard_preview_update,
+        "sse_dashboard_preview_show": dashboard_preview_show,
+    }
+
+
+def get_auth_functions():
+    return {
+        "sse_dashboard_create": auth_create,
+        "sse_dashboard_show": auth_show,
+        "sse_dashboard_list": auth_list,
+        "sse_dashboard_update": auth_update,
+        "sse_dashboard_delete": auth_delete,
+        "sse_dashboard_showcase": auth_showcase,
+        "sse_dashboard_move": auth_move,
+        "sse_dashboard_reorder": auth_reorder,
+        "sse_dashboard_showcase_targets": auth_showcase_targets,
+        "sse_dashboard_preview_update": auth_preview_update,
+        "sse_dashboard_preview_show": auth_preview_show,
+    }

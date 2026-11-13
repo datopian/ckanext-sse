@@ -3,7 +3,7 @@ from collections import OrderedDict
 
 from sqlalchemy import (
     orm, Column, String, Text, DateTime, ForeignKey, Enum, Index, Boolean,
-    func, or_, text, inspect as sa_inspect,
+    Integer, CheckConstraint, LargeBinary, func, or_, text, inspect as sa_inspect,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Unicode
@@ -597,3 +597,142 @@ class FormResponse(DomainObject.DomainObject, tk.BaseModel):
             Session.commit()
             return submission
         return None
+
+
+class Dashboard(DomainObject.DomainObject, tk.BaseModel):
+    """A dashboard owned either by a user (personal) or by a dataset."""
+
+    __tablename__ = "sse_dashboard"
+    __table_args__ = (
+        CheckConstraint(
+            "(owner_user_id IS NULL) <> (package_id IS NULL)",
+            name="sse_dashboard_one_owner",
+        ),
+        CheckConstraint(
+            "visibility IN ('private', 'public')",
+            name="sse_dashboard_visibility",
+        ),
+        Index("idx_sse_dashboard_owner_user_id", "owner_user_id"),
+        Index("idx_sse_dashboard_package_id", "package_id"),
+        Index(
+            "uq_sse_dashboard_package_slug", "package_id", "slug",
+            unique=True, postgresql_where=text("package_id IS NOT NULL"),
+        ),
+    )
+
+    id = Column(Unicode(64), primary_key=True, default=make_uuid)
+    title = Column(Text, nullable=False)
+    slug = Column(Unicode(100), nullable=True)
+    description = Column(Text, nullable=True)
+    # Hard user removal takes their personal dashboards with it; CKAN's own
+    # user_delete only marks the account deleted, so they are kept then.
+    owner_user_id = Column(
+        String(60), ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
+    # Purging a dataset removes its dashboards.
+    package_id = Column(
+        String(60), ForeignKey("package.id", ondelete="CASCADE"), nullable=True)
+    visibility = Column(String(20), nullable=False, default="private")
+    position = Column(Integer, nullable=False, default=0)
+    config = Column(JSONB, nullable=False)
+    created_by = Column(
+        String(60), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    updated_by = Column(
+        String(60), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def as_dict(self):
+        out = OrderedDict()
+        for col in orm.class_mapper(self.__class__).mapped_table.c:
+            val = getattr(self, col.name)
+            if isinstance(val, datetime):
+                val = val.isoformat()
+            out[col.name] = val
+        return out
+
+    @classmethod
+    def get(cls, dashboard_id):
+        return Session.get(cls, dashboard_id)
+
+    @classmethod
+    def for_user(cls, user_id):
+        return (
+            Session.query(cls)
+            .filter_by(owner_user_id=user_id)
+            .order_by(cls.updated_at.desc())
+            .all()
+        )
+
+    @classmethod
+    def for_package(cls, package_id):
+        """A data asset's dashboards in the order its editors set."""
+        return (
+            Session.query(cls)
+            .filter_by(package_id=package_id)
+            .order_by(cls.position.asc(), cls.created_at.asc())
+            .all()
+        )
+
+    @classmethod
+    def by_slug(cls, package_id, slug):
+        return Session.query(cls).filter_by(package_id=package_id, slug=slug).first()
+
+    @classmethod
+    def showcased(cls):
+        return Session.query(cls).filter(cls.package_id.isnot(None)).all()
+
+
+class DashboardPreview(tk.BaseModel):
+    """A screenshot of a dashboard for its card, taken in the browser on save.
+
+    Kept apart from ``sse_dashboard`` so listing dashboards never loads images.
+    """
+
+    __tablename__ = "sse_dashboard_preview"
+
+    dashboard_id = Column(
+        Unicode(64), ForeignKey("sse_dashboard.id", ondelete="CASCADE"), primary_key=True)
+    mimetype = Column(String(40), nullable=False)
+    image = Column(LargeBinary, nullable=False)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    @classmethod
+    def get(cls, dashboard_id):
+        return Session.get(cls, dashboard_id)
+
+    @classmethod
+    def taken_at(cls, dashboard_ids):
+        """When each of these dashboards' previews was taken, without loading the images."""
+        if not dashboard_ids:
+            return {}
+        rows = (
+            Session.query(cls.dashboard_id, cls.updated_at)
+            .filter(cls.dashboard_id.in_(list(dashboard_ids)))
+            .all()
+        )
+        return {dashboard_id: taken.isoformat() for dashboard_id, taken in rows}
+
+
+class DashboardRedirect(tk.BaseModel):
+    """An insight's old address after it moved to another data asset."""
+
+    __tablename__ = "sse_dashboard_redirect"
+
+    package_id = Column(
+        String(60), ForeignKey("package.id", ondelete="CASCADE"), primary_key=True)
+    slug = Column(Unicode(100), primary_key=True)
+    dashboard_id = Column(
+        Unicode(64), ForeignKey("sse_dashboard.id", ondelete="CASCADE"), nullable=False)
+
+    @classmethod
+    def target(cls, package_id, slug):
+        found = Session.get(cls, (package_id, slug))
+        return Dashboard.get(found.dashboard_id) if found else None
+
+    @classmethod
+    def remember(cls, package_id, slug, dashboard_id):
+        found = Session.get(cls, (package_id, slug))
+        if found is None:
+            Session.add(cls(package_id=package_id, slug=slug, dashboard_id=dashboard_id))
+        else:
+            found.dashboard_id = dashboard_id

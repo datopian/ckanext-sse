@@ -12,6 +12,9 @@ import pytest
 from ckan.model.meta import engine
 
 from ckanext.sse.model import (
+    Dashboard,
+    DashboardPreview,
+    DashboardRedirect,
     FormResponse,
     PackageAccessRequest,
     PackageAccessRequestEvent,
@@ -23,6 +26,9 @@ EXTENSION_TABLES = (
     PackageAccessRequestEvent,
     FormResponse,
     UserPasswordHistory,
+    Dashboard,
+    DashboardPreview,
+    DashboardRedirect,
 )
 
 

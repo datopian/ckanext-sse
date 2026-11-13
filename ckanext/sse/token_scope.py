@@ -78,6 +78,20 @@ FRONTEND_TOKEN_ACTIONS = frozenset(
         # regenerate the user's own Smart Meter token (mints a *less*
         # privileged token; safe for the frontend to trigger)
         "smart_meter_token_create",
+        # the signed-in user's own dashboards (owner-only auth in dashboards.py)
+        "sse_dashboard_create",
+        "sse_dashboard_show",
+        "sse_dashboard_list",
+        "sse_dashboard_update",
+        "sse_dashboard_delete",
+        # showcasing in data assets: permission comes from editing the data asset
+        "sse_dashboard_showcase",
+        "sse_dashboard_move",
+        "sse_dashboard_reorder",
+        "sse_dashboard_showcase_targets",
+        # card screenshots: same rules as editing and viewing
+        "sse_dashboard_preview_update",
+        "sse_dashboard_preview_show",
         # -- package / resource reads --
         "package_show",
         "package_list",

@@ -52,7 +52,11 @@ class TestAllowlists:
                        "data_reuse_create", "request_access_to_dataset",
                        "follow_dataset",
                        # the frontend triggers Smart Meter token regeneration
-                       "smart_meter_token_create"):
+                       "smart_meter_token_create",
+                       # personal dashboards, managed from the portal
+                       "sse_dashboard_create", "sse_dashboard_show",
+                       "sse_dashboard_list", "sse_dashboard_update",
+                       "sse_dashboard_delete"):
             assert action in ts.FRONTEND_TOKEN_ACTIONS
 
     def test_frontend_blocks_every_write_and_admin_action(self):

@@ -1,0 +1,66 @@
+name: Opengrep SAST
+
+# Static analysis of the extension's own code with Opengrep (pinned binary and
+# rules in ci/opengrep_scan.py). Pull requests only scan and print a summary.
+# Pushes to main, the weekly run and manual runs also upload the findings to
+# DefectDojo, where the SSE issue sync turns them into board issues.
+#
+# Needs: secret DEFECTDOJO_TOKEN (DefectDojo API v2 key) and repo variables
+# DEFECTDOJO_URL (base URL, no trailing slash) and DD_PRODUCT_TYPE (the
+# DefectDojo organization the asset lives under).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, so findings that were fixed (or newly published rules) are picked
+    # up even when nothing was pushed.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opengrep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    # GitHub-hosted on purpose: this repo is public, and self-hosted runners
+    # must never run code from public pull requests.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Opengrep scan
+        run: |
+          python3 ci/opengrep_scan.py . "$RUNNER_TEMP/sast.json" \
+            --semgrep-json "$RUNNER_TEMP/sast-semgrep.json" \
+            --markdown "$RUNNER_TEMP/sast.md" | tee -a "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/sast.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to DefectDojo
+        if: github.event_name != 'pull_request'
+        env:
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+          DD_PRODUCT_TYPE: ${{ vars.DD_PRODUCT_TYPE }}
+        run: |
+          for v in DEFECTDOJO_TOKEN DEFECTDOJO_URL DD_PRODUCT_TYPE; do
+            [ -n "${!v}" ] || { echo "::error::$v is not set"; exit 1; }
+          done
+          # Reimport (not import) so a fixed finding is closed on the next run
+          # instead of piling up as a new test every time.
+          curl -sS -L --fail-with-body -X POST "$DEFECTDOJO_URL/api/v2/reimport-scan/" \
+            -H "Authorization: Token $DEFECTDOJO_TOKEN" \
+            -F "scan_type=Semgrep JSON Report" \
+            -F "test_title=Opengrep SAST" \
+            -F "product_name=${GITHUB_REPOSITORY#*/}" \
+            -F "product_type_name=$DD_PRODUCT_TYPE" \
+            -F "engagement_name=CI/CD Scans" \
+            -F "auto_create_context=true" \
+            -F "close_old_findings=true" \
+            -F "service=sast" \
+            -F "file=@$RUNNER_TEMP/sast-semgrep.json"

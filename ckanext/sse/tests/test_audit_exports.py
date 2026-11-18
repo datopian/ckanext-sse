@@ -242,6 +242,7 @@ class TestEndToEnd:
             "dataset_name": dataset["name"],
             "organization": "ssen-org",
             "dataset_private": True,
+            "dataset_restricted": False,
         }
         assert audit._dataset_scope("no-such-resource") == {}
 

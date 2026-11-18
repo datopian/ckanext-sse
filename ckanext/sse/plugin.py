@@ -8,7 +8,7 @@ import logging
 from ckanext.sse import action, auth
 from ckanext.sse import cli, upload_security, upload_scan, session_policy, token_scope
 from ckanext.sse import password_policy, login_throttle, account_lifecycle, file_history
-from ckanext.sse import scim, mail_suppression, dashboards
+from ckanext.sse import scim, mail_suppression, dashboards, data_access
 import ckan.authz
 from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, data_reuse
 from .model import (
@@ -165,6 +165,8 @@ class SsePlugin(plugins.SingletonPlugin):
             # Least-privilege scoping for named API tokens; only acts on
             # requests carrying a scoped token.
             token_scope.blueprint,
+            # Routeless: refuses file downloads the caller may not read.
+            data_access.blueprint,
             # Routeless: re-disables an inactivity-disabled account that SSO
             # silently reactivated, and shows a disabled user why on CKAN's
             # login (AC-2.3).
@@ -319,7 +321,8 @@ class SsePlugin(plugins.SingletonPlugin):
             "data_reuse_show": auth.data_reuse_show,
             "data_reuse_update": auth.data_reuse_update,
             "data_reuse_delete": auth.data_reuse_delete,
-            "datastore_search_sql": auth.datastore_search_sql,
+            "datastore_search": data_access.datastore_search,
+            "datastore_search_sql": data_access.datastore_search_sql,
             **dashboards.get_auth_functions(),
         }
 

@@ -51,7 +51,7 @@ can be found without reconstructing it from ``api_request`` lines:
   ``request_finished``. The dump view pages through ``datastore_search``
   internally, so searches made inside a dump are left to the dump's own event.
 
-Both carry the dataset, its organisation and whether it is private, so events
+Both carry the dataset, its organisation and whether it is private or restricted, so events
 on restricted data can be filtered without a join against CKAN, and an
 ``access_context`` of ``download``, ``preview`` or ``api`` so the reads behind
 an ordinary page view on the portal are not mistaken for exports.
@@ -100,6 +100,8 @@ from flask_login import user_logged_in
 
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
+
+from ckanext.sse import data_access
 
 log = logging.getLogger(__name__)
 
@@ -821,6 +823,7 @@ def _dataset_scope(resource_id):
             "dataset_name": package.name,
             "organization": _safe_attr(owner, "name"),
             "dataset_private": bool(package.private),
+            "dataset_restricted": data_access.is_restricted(package),
         }
     except Exception:
         log.exception("Failed to resolve dataset for resource %s", resource_id)

@@ -300,6 +300,33 @@ class TestDataStore:
         _, res = world["restricted"]
         api(app, "datastore_info", {"id": res["id"]}, headers(world, "outsider"))
 
+    @pytest.mark.parametrize("kind", ["open", "restricted"])
+    @pytest.mark.parametrize("who", ["anonymous", "outsider"])
+    def test_datastore_info_lists_fields(self, app, world, kind, who):
+        # datastore_info builds its fields from a schema-only datastore_search.
+        _, res = world[kind]
+        resp = api(app, "datastore_info", {"id": res["id"]}, headers(world, who))
+        assert [f["id"] for f in resp.json["result"]["fields"]] == ["name"]
+
+    def test_schema_only_search_is_allowed_anonymously(self, app, world):
+        _, res = world["restricted"]
+        resp = api(app, "datastore_search",
+                    {"resource_id": res["id"], "limit": 0, "include_total": False}, {})
+        assert resp.json["result"]["records"] == []
+
+    @pytest.mark.parametrize("payload", [
+        {"limit": 0},
+        {"limit": 0, "include_total": True},
+        {"limit": 0, "include_total": False, "q": "row"},
+        {"limit": 0, "include_total": False, "filters": {"name": "row"}},
+        {"limit": 1, "include_total": False},
+    ])
+    @pytest.mark.parametrize("who", ["anonymous", "outsider"])
+    def test_searches_that_reveal_data_stay_refused(self, app, world, payload, who):
+        _, res = world["restricted"]
+        api(app, "datastore_search", dict(payload, resource_id=res["id"]),
+            headers(world, who), status=403)
+
 
 class TestPackageShow:
     @pytest.mark.parametrize("who,expected", [

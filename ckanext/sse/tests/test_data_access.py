@@ -400,6 +400,91 @@ class TestAudit:
         assert event["dataset_restricted"] is False
 
 
+class TestPrivateDataAudit:
+    """Refused reads of a private dataset's data leave a failure event."""
+
+    def events(self, capsys, action):
+        lines = capsys.readouterr().out.splitlines()
+        return [e for e in (json.loads(l) for l in lines if l.startswith("{"))
+                if e["action"] == action]
+
+    def finish(self, app, path, status, auth=None):
+        # The storage and dump views answer refusals with HTML error pages,
+        # which this test setup cannot render; record the response they send.
+        from werkzeug.wrappers import Response
+        from ckanext.sse import audit
+
+        with app.flask_app.test_request_context(path, headers=auth or {}):
+            audit.on_request_finished(None, response=Response(status=status))
+
+    def test_anonymous_download_is_recorded(self, app, world, capsys):
+        pkg, res = world["private"]
+        capsys.readouterr()
+        app.get(download_url(pkg, res), status=403)
+        [event] = self.events(capsys, "resource_download")
+        assert event["status"] == "failure"
+        assert event["http_status"] == 403
+        assert event["dataset_private"] is True
+        assert event["dataset_restricted"] is False
+
+    # s3filestore refuses a non-member with 401, core CKAN with 403.
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_refused_download_by_a_signed_in_user_is_recorded(self, app, world, capsys,
+                                                               status):
+        pkg, res = world["private"]
+        capsys.readouterr()
+        self.finish(app, download_url(pkg, res, "download/data.csv"), status)
+        [event] = self.events(capsys, "resource_download")
+        assert event["status"] == "failure"
+        assert event["http_status"] == status
+        assert event["dataset_private"] is True
+        assert event["resource_id"] == res["id"]
+
+    @pytest.mark.parametrize("who", ["anonymous", "outsider"])
+    def test_refused_search_is_recorded(self, app, world, capsys, who):
+        _, res = world["private"]
+        capsys.readouterr()
+        api(app, "datastore_search", {"resource_id": res["id"]}, headers(world, who),
+            status=403)
+        [event] = self.events(capsys, "data_export")
+        assert event["status"] == "failure"
+        assert event["error_class"] == "NotAuthorized"
+        assert event["dataset_private"] is True
+        assert event["row_count"] == 0
+        if who == "outsider":
+            assert event["user_name"] == world["users"]["outsider"]["name"]
+
+    def test_refused_sql_is_recorded(self, app, world, capsys):
+        _, res = world["private"]
+        capsys.readouterr()
+        sql = {"sql": 'SELECT * FROM "{}"'.format(res["id"])}
+        api(app, "datastore_search_sql", sql, headers(world, "outsider"), status=403)
+        [event] = self.events(capsys, "data_export")
+        assert event["status"] == "failure"
+        assert event["resource_ids"] == [res["id"]]
+        assert event["dataset_private"] is True
+
+    def test_refused_dump_is_recorded(self, app, world, capsys):
+        _, res = world["private"]
+        capsys.readouterr()
+        self.finish(app, "/datastore/dump/" + res["id"], 404,
+                    headers(world, "outsider"))
+        [event] = self.events(capsys, "data_export")
+        assert event["status"] == "failure"
+        assert event["export_method"] == "datastore_dump"
+        assert event["dataset_private"] is True
+
+    @pytest.mark.parametrize("who", ["org_member", "collaborator"])
+    def test_granted_read_is_a_success(self, app, world, capsys, who):
+        _, res = world["private"]
+        capsys.readouterr()
+        api(app, "datastore_search", {"resource_id": res["id"]}, headers(world, who))
+        [event] = self.events(capsys, "data_export")
+        assert event["status"] == "success"
+        assert event["dataset_private"] is True
+        assert event["row_count"] == 1
+
+
 class TestPathMatching:
     @pytest.mark.parametrize("path", [
         "/dataset/x/resource/r1/download",

@@ -277,24 +277,21 @@ class TestDataStore:
         resp = app.get("/datastore/dump/" + res["id"], headers=headers(world, who))
         assert "row" in resp.body
 
-    @pytest.mark.parametrize("who", ["anonymous", "outsider"])
-    def test_dump_search_of_restricted_data_refused(self, world, who):
-        # The dump view reads through datastore_search with just the user name.
+    @pytest.mark.parametrize("who", ["anonymous", "outsider", "subdomain_lookalike"])
+    def test_dump_of_restricted_data_refused(self, app, world, who):
         _, res = world["restricted"]
-        name = "" if who == "anonymous" else world["users"][who]["name"]
-        with pytest.raises(toolkit.NotAuthorized):
-            helpers.call_action("datastore_search", {"user": name, "ignore_auth": False},
-                                resource_id=res["id"])
+        resp = app.get("/datastore/dump/" + res["id"], headers=headers(world, who),
+                       status=403)
+        assert "row" not in resp.body
 
     def test_dump_of_open_data_when_signed_in(self, app, world):
         _, res = world["open"]
         app.get("/datastore/dump/" + res["id"], headers=headers(world, "outsider"), status=200)
 
-    def test_dump_search_of_open_data_refused_when_anonymous(self, world):
+    def test_dump_of_open_data_refused_when_anonymous(self, app, world):
         _, res = world["open"]
-        with pytest.raises(toolkit.NotAuthorized):
-            helpers.call_action("datastore_search", {"user": "", "ignore_auth": False},
-                                resource_id=res["id"])
+        resp = app.get("/datastore/dump/" + res["id"], status=403)
+        assert "signed in" in resp.body
 
     def test_datastore_info_is_unchanged(self, app, world):
         _, res = world["restricted"]
@@ -389,6 +386,17 @@ class TestAudit:
         assert event["http_status"] == 403
         assert event["dataset_restricted"] is True
         assert event["user_name"] == world["users"]["outsider"]["name"]
+
+    def test_refused_restricted_dump_is_recorded(self, app, world, capsys):
+        _, res = world["restricted"]
+        capsys.readouterr()
+        app.get("/datastore/dump/" + res["id"], headers=headers(world, "outsider"),
+                status=403)
+        [event] = [e for e in self.events(capsys) if e["action"] == "data_export"]
+        assert event["status"] == "failure"
+        assert event["http_status"] == 403
+        assert event["export_method"] == "datastore_dump"
+        assert event["dataset_restricted"] is True
 
     def test_served_open_download_is_not_restricted(self, app, world, capsys):
         pkg, res = world["open"]
@@ -494,9 +502,11 @@ class TestPathMatching:
         "/dataset/x/resource/r1/proxy",
         "/en/dataset/x/resource/r1/download",
         "/pt_BR/dataset/x/resource/r1/download/file.csv",
+        "/datastore/dump/r1",
+        "/en/datastore/dump/r1",
     ])
     def test_data_paths(self, path):
-        assert data_access.DATA_PATH.match(path).group(1) == "r1"
+        assert data_access.data_path_resource(path) == "r1"
 
     @pytest.mark.parametrize("path", [
         "/dataset/x/resource/r1",
@@ -505,6 +515,8 @@ class TestPathMatching:
         "/api/3/action/resource_show",
         "/uploads/group/icon.svg",
         "/dataset/x/resource/r1/downloads",
+        "/datastore/dump/r1/extra",
+        "/api/3/action/datastore_search",
     ])
     def test_other_paths(self, path):
-        assert data_access.DATA_PATH.match(path) is None
+        assert data_access.data_path_resource(path) is None

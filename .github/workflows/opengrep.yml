@@ -87,8 +87,8 @@ jobs:
             echo "**Trivy dependency scan**"
             echo
             jq -r '[.Results[]?.Vulnerabilities[]?] as $v
-              | "\($v | length) vulnerabilities in declared dependencies: "
-              + ([ "CRITICAL","HIGH","MEDIUM","LOW" ][] as $s | "\($s | ascii_downcase) \([$v[] | select(.Severity == $s)] | length)") ' "$RUNNER_TEMP/trivy.json" | paste -sd, -
+              | def n($s): [$v[] | select(.Severity == $s)] | length;
+                "\($v | length) vulnerabilities in declared dependencies (critical \(n("CRITICAL")), high \(n("HIGH")), medium \(n("MEDIUM")), low \(n("LOW")))"' "$RUNNER_TEMP/trivy.json"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload to DefectDojo

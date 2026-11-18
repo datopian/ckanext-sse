@@ -6,6 +6,8 @@ member of the owning organisation or a dataset collaborator. Private datasets
 are left to CKAN's own checks, which run alongside this one.
 """
 
+import hashlib
+import json
 import logging
 import os
 import re
@@ -34,10 +36,81 @@ def data_path_resource(path):
 
 ALLOWED_DOMAINS_ENV = "CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS"
 
+# Organisations approved by SSE for restricted data, as a JSON object mapping
+# each organisation's name to its email domains. Changed through SSE change
+# management; unset or invalid means no outside organisation is approved.
+APPROVED_ORGANISATIONS_ENV = "CKANEXT__SSE__APPROVED_ORGANISATIONS"
+
+NOT_APPROVED_MESSAGE = (
+    "Restricted data can only be shared with users from organisations approved "
+    "by SSEN. Your email address does not belong to an approved organisation."
+)
+NOT_APPROVED_GRANT_MESSAGE = (
+    "This user is not from an organisation approved by SSEN, so they cannot be "
+    "given access to restricted data."
+)
+
 
 def allowed_email_domains():
+    """Internal domains whose users read every restricted dataset."""
     raw = os.environ.get(ALLOWED_DOMAINS_ENV, "")
     return [d.strip().lower() for d in raw.split(",") if d.strip()]
+
+
+def approved_organisations():
+    """``{organisation name: [domains]}`` from the environment."""
+    raw = os.environ.get(APPROVED_ORGANISATIONS_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return {
+            str(name).strip(): sorted({str(d).strip().lower().lstrip("@") for d in domains if str(d).strip()})
+            for name, domains in parsed.items()
+            if str(name).strip()
+        }
+    except Exception:
+        log.error("%s is not a JSON object of organisation -> domains; "
+                  "no organisation is approved", APPROVED_ORGANISATIONS_ENV)
+        return {}
+
+
+def log_approved_organisations():
+    """Record the allowlist in the audit log each time CKAN starts, so every
+    change shipped through a deployment leaves a dated record."""
+    from ckanext.sse.audit import emit_audit_log
+
+    orgs = approved_organisations()
+    emit_audit_log(
+        action="approved_organisations_loaded",
+        status="success",
+        message="{} approved organisation(s) for restricted data".format(len(orgs)),
+        organisations=orgs,
+        internal_domains=allowed_email_domains(),
+        fingerprint=hashlib.sha256(json.dumps(orgs, sort_keys=True).encode()).hexdigest()[:16],
+    )
+
+
+def _email_domain(email):
+    email = (email or "").strip().lower()
+    return email.rsplit("@", 1)[1] if "@" in email else ""
+
+
+def approved_organisation(email):
+    """The approved organisation an email address belongs to, or ``None``.
+
+    Internal domains count as approved. Domains match exactly, so a
+    subdomain or a look-alike domain is not approved.
+    """
+    domain = _email_domain(email)
+    if not domain:
+        return None
+    if domain in allowed_email_domains():
+        return "SSEN"
+    for name, domains in approved_organisations().items():
+        if domain in domains:
+            return name
+    return None
 
 
 def is_restricted(package):
@@ -57,8 +130,7 @@ def _is_anonymous(user_obj):
 
 
 def _has_allowed_domain(user_obj):
-    email = (user_obj.email or "").lower()
-    return any(email.endswith("@" + d) for d in allowed_email_domains())
+    return _email_domain(user_obj.email) in allowed_email_domains()
 
 
 def _is_org_member(user_obj, package_id, owner_org):
@@ -93,7 +165,8 @@ def has_restricted_access(user_obj, package_id, owner_org):
         user_obj.sysadmin
         or _has_allowed_domain(user_obj)
         or _is_org_member(user_obj, package_id, owner_org)
-        or _is_collaborator(user_obj, package_id)
+        or (_is_collaborator(user_obj, package_id)
+            and approved_organisation(user_obj.email) is not None)
     )
 
 

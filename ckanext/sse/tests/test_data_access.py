@@ -23,6 +23,7 @@ pytestmark = [
 
 PASSWORD = "Tr0mb0ne-Yak!79-quartz"
 ALLOWED = "allowed.example"
+PARTNER = "partner.example"
 
 
 @pytest.fixture
@@ -33,6 +34,8 @@ def no_schema(monkeypatch):
 @pytest.fixture
 def allowed_domains(monkeypatch):
     monkeypatch.setenv(data_access.ALLOWED_DOMAINS_ENV, "{}, other.example".format(ALLOWED))
+    monkeypatch.setenv(data_access.APPROVED_ORGANISATIONS_ENV,
+                       json.dumps({"Partner Co": [PARTNER, "partner-two.example"]}))
 
 
 def user(**kwargs):
@@ -76,7 +79,8 @@ def world():
         "outsider": user(email="someone@gmail.com"),
         "allowed_domain": user(email="analyst@" + ALLOWED),
         "subdomain_lookalike": user(email="analyst@evil" + ALLOWED),
-        "collaborator": user(),
+        "collaborator": user(email="analyst@" + PARTNER),
+        "partner": user(email="someone@" + PARTNER),
         "sysadmin": factories.Sysadmin(password=PASSWORD),
     }
     open_pkg, open_res = dataset(org)
@@ -491,6 +495,123 @@ class TestPrivateDataAudit:
         assert event["status"] == "success"
         assert event["dataset_private"] is True
         assert event["row_count"] == 1
+
+
+class TestApprovedOrganisations:
+    """Restricted data is only shared with users from approved organisations."""
+
+    @pytest.mark.parametrize("email,expected", [
+        ("someone@partner.example", "Partner Co"),
+        ("Someone@PARTNER.example", "Partner Co"),
+        ("someone@partner-two.example", "Partner Co"),
+        ("analyst@allowed.example", "SSEN"),
+        ("someone@gmail.com", None),
+        ("someone@evil.partner.example", None),
+        ("someone@partner.example.evil.com", None),
+        ("not-an-email", None),
+        ("", None),
+    ])
+    def test_organisation_for_email(self, email, expected):
+        assert data_access.approved_organisation(email) == expected
+
+    @pytest.mark.parametrize("raw", ["not json", "[]", "", "{}"])
+    def test_missing_or_invalid_setting_approves_no_one(self, monkeypatch, raw):
+        monkeypatch.setenv(data_access.APPROVED_ORGANISATIONS_ENV, raw)
+        assert data_access.approved_organisation("someone@partner.example") is None
+
+    def request(self, app, world, who, monkeypatch):
+        monkeypatch.setattr(sse_action, "send_request_mail_to_org_admins", lambda d: True)
+        pkg, _ = world["restricted"]
+        payload = {"package_id": pkg["id"], "message": "Please", "user_organization": "Somewhere"}
+        return api(app, "request_access_to_dataset", payload, headers(world, who)).json["result"]
+
+    @pytest.mark.parametrize("who", ["outsider", "subdomain_lookalike"])
+    def test_request_from_unapproved_organisation_is_refused(self, app, world, who,
+                                                             monkeypatch, capsys):
+        from ckanext.sse.model import PackageAccessRequest
+        capsys.readouterr()
+        result = self.request(app, world, who, monkeypatch)
+        assert result["success"] is False
+        assert result["errors"]["validation"] == [data_access.NOT_APPROVED_MESSAGE]
+        assert PackageAccessRequest.get_by_package_user_and_status(
+            world["restricted"][0]["id"], world["users"][who]["id"], "pending") == []
+        events = [json.loads(l) for l in capsys.readouterr().out.splitlines() if l.startswith("{")]
+        assert any(e["action"] == "access_request" and e["status"] == "failure" for e in events)
+
+    def test_request_from_approved_organisation_is_created(self, app, world, monkeypatch):
+        assert self.request(app, world, "partner", monkeypatch)["success"] is True
+
+    def test_internal_domain_already_has_access(self, app, world, monkeypatch):
+        result = self.request(app, world, "allowed_domain", monkeypatch)
+        assert result["success"] is False
+        assert "already have access" in result["errors"]["validation"][0]
+
+    @pytest.mark.parametrize("who", ["outsider", "subdomain_lookalike"])
+    def test_unapproved_user_cannot_be_given_access(self, world, who):
+        pkg, _ = world["restricted"]
+        with pytest.raises(toolkit.ValidationError) as err:
+            helpers.call_action("package_collaborator_create", id=pkg["id"],
+                                user_id=world["users"][who]["id"], capacity="member")
+        assert data_access.NOT_APPROVED_GRANT_MESSAGE in str(err.value.error_dict)
+
+    def test_unapproved_user_cannot_be_given_access_by_an_org_admin(self, world):
+        pkg, _ = world["restricted"]
+        with pytest.raises(toolkit.ValidationError):
+            helpers.call_action(
+                "package_collaborator_create",
+                {"user": world["users"]["org_admin"]["name"], "ignore_auth": False},
+                id=pkg["id"], user_id=world["users"]["outsider"]["id"], capacity="member")
+
+    def test_approved_user_can_be_given_access(self, app, world):
+        pkg, res = world["restricted"]
+        helpers.call_action("package_collaborator_create", id=pkg["id"],
+                            user_id=world["users"]["partner"]["id"], capacity="member")
+        app.get(download_url(pkg, res), headers=headers(world, "partner"),
+                follow_redirects=False, status=302)
+
+    def test_private_datasets_are_not_affected(self, world):
+        pkg, _ = world["private"]
+        helpers.call_action("package_collaborator_create", id=pkg["id"],
+                            user_id=world["users"]["outsider"]["id"], capacity="member")
+
+    def test_unapproved_collaborator_added_earlier_cannot_read(self, app, world):
+        pkg, res = world["restricted"]
+        who = world["users"]["outsider"]
+        model.Session.add(model.PackageMember(package_id=pkg["id"], user_id=who["id"],
+                                              capacity="member"))
+        model.Session.commit()
+        app.get(download_url(pkg, res), headers=headers(world, "outsider"), status=403)
+        api(app, "datastore_search", {"resource_id": res["id"]}, headers(world, "outsider"),
+            status=403)
+
+    def test_removing_an_organisation_revokes_its_users(self, app, world, monkeypatch):
+        pkg, res = world["restricted"]
+        auth = headers(world, "collaborator")
+        app.get(download_url(pkg, res), headers=auth, follow_redirects=False, status=302)
+        monkeypatch.setenv(data_access.APPROVED_ORGANISATIONS_ENV, "{}")
+        app.get(download_url(pkg, res), headers=auth, status=403)
+
+    def test_approving_a_request_from_an_unapproved_user_is_refused(self, app, world):
+        from ckanext.sse.model import PackageAccessRequest
+        pkg, _ = world["restricted"]
+        outsider = world["users"]["outsider"]
+        req = PackageAccessRequest.create(package_id=pkg["id"], user_id=outsider["id"],
+                                          org_id=pkg["owner_org"], message="Please")
+        app.post("/access_requests/update_status",
+                 data={"request_id": req.id, "action": "approve"},
+                 headers=headers(world, "org_admin"), follow_redirects=False)
+        assert PackageAccessRequest.get(req.id).status == "pending"
+        assert model.Session.query(model.PackageMember).filter_by(
+            package_id=pkg["id"], user_id=outsider["id"]).count() == 0
+
+    def test_loaded_allowlist_is_recorded(self, capsys):
+        capsys.readouterr()
+        data_access.log_approved_organisations()
+        [event] = [json.loads(l) for l in capsys.readouterr().out.splitlines()
+                   if l.startswith("{")]
+        assert event["action"] == "approved_organisations_loaded"
+        assert event["organisations"] == {"Partner Co": ["partner-two.example", PARTNER]}
+        assert event["fingerprint"]
 
 
 class TestPathMatching:

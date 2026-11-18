@@ -111,6 +111,18 @@ def resource_activity_list(context, data_dict):
 
 @tk.chained_action
 def package_collaborator_create(up_func, context, data_dict):
+    # Restricted data is only shared with approved organisations, however
+    # access is granted (API, CKAN UI or approving a request).
+    pkg_obj = ckan.model.Package.get(data_dict.get("id"))
+    user_obj = ckan.model.User.get(data_dict.get("user_id"))
+    if (pkg_obj is not None and user_obj is not None
+            and data_access.is_restricted(pkg_obj)
+            and data_access.approved_organisation(user_obj.email) is None):
+        emit_access_request(
+            "granted", "failure", package_id=pkg_obj.id, requester_id=user_obj.id,
+            reason="user is not from an approved organisation",
+        )
+        raise tk.ValidationError({"user_id": [_(data_access.NOT_APPROVED_GRANT_MESSAGE)]})
     result = up_func(context, data_dict)
     if context.get("send_approval_email"):
         pkg = tk.get_action("package_show")(
@@ -214,6 +226,16 @@ def request_access_to_dataset(context, data_dict):
         return {
             "success": False,
             "errors": {"validation": [_("Dataset not found or private")]},
+        }
+
+    if data_access.is_restricted(pkg) and data_access.approved_organisation(user.get("email")) is None:
+        emit_access_request(
+            "created", "failure", package_id=pkg.get("id"), requester_id=user.get("id"),
+            reason="user is not from an approved organisation",
+        )
+        return {
+            "success": False,
+            "errors": {"validation": [_(data_access.NOT_APPROVED_MESSAGE)]},
         }
 
     is_user_collaborator_already = is_user_id_present_in_the_dict_list(

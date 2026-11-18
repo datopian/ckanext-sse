@@ -18,11 +18,19 @@ import ckan.plugins.toolkit as tk
 log = logging.getLogger(__name__)
 
 # Every route that serves a resource's bytes: core, s3filestore and
-# googleanalytics downloads, derived formats and the resource proxy.
+# googleanalytics downloads, derived formats, the resource proxy and DataStore
+# dumps. The dump view would otherwise fail mid-stream with a 500.
 DATA_PATH = re.compile(
-    r"^(?:/[a-z]{2}(?:_[A-Z]{2})?)?/dataset/[^/]+/resource/([^/]+)/"
-    r"(?:fs_download|download|derived|proxy)(?:/|$)"
+    r"^(?:/[a-z]{2}(?:_[A-Z]{2})?)?(?:"
+    r"/dataset/[^/]+/resource/([^/]+)/(?:fs_download|download|derived|proxy)(?:/|$)"
+    r"|/datastore/dump/([^/]+)$)"
 )
+
+
+def data_path_resource(path):
+    """The resource id a data route serves, or ``None``."""
+    match = DATA_PATH.match(path or "")
+    return (match.group(1) or match.group(2)) if match else None
 
 ALLOWED_DOMAINS_ENV = "CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS"
 
@@ -175,10 +183,10 @@ def enforce_data_routes():
     """Refuse a request for a resource's bytes the caller may not read."""
     if not has_request_context():
         return None
-    match = DATA_PATH.match(tk.request.path or "")
-    if not match:
+    resource_id = data_path_resource(tk.request.path)
+    if not resource_id:
         return None
-    package = resource_package(match.group(1))
+    package = resource_package(resource_id)
     if package is None:
         return None
     user_obj = _current_user()

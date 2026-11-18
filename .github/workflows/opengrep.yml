@@ -1,9 +1,10 @@
-name: Opengrep SAST
+name: Security scans
 
-# Static analysis of the extension's own code with Opengrep (pinned binary and
-# rules in ci/opengrep_scan.py). Pull requests only scan and print a summary.
-# Pushes to main, the weekly run and manual runs also upload the findings to
-# DefectDojo, where the SSE issue sync turns them into board issues.
+# Two scanners, one job each: Opengrep (static analysis of the extension's own
+# code; pinned binary and rules in ci/opengrep_scan.py) and Trivy (vulnerable
+# dependencies declared in requirements.txt). Pull requests only scan and print
+# a summary. Pushes to main, the weekly run and manual runs also upload the
+# findings to DefectDojo, where the SSE issue sync turns them into board issues.
 #
 # Needs: secret DEFECTDOJO_TOKEN (DefectDojo API v2 key) and repo variables
 # DEFECTDOJO_URL (base URL, no trailing slash) and DD_PRODUCT_TYPE (the
@@ -64,3 +65,50 @@ jobs:
             -F "close_old_findings=true" \
             -F "service=sast" \
             -F "file=@$RUNNER_TEMP/sast-semgrep.json"
+
+  trivy:
+    # Dependencies the extension declares (requirements.txt). Separate job so a
+    # failure in one scanner never hides the result of the other.
+    runs-on: ubuntu-latest
+    env:
+      # Pinned: an unpinned scanner image can change results (or break) between runs.
+      TRIVY_IMAGE: aquasec/trivy:0.76.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy dependency scan
+        run: |
+          # dev-requirements.txt is test tooling that is never deployed, and its
+          # open version ranges cannot be matched against advisories anyway.
+          docker run --rm -v "$PWD:/src" -v "$RUNNER_TEMP:/out" "$TRIVY_IMAGE" \
+            fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL --skip-files /src/dev-requirements.txt \
+            --format json --output /out/trivy.json --exit-code 0 /src
+          {
+            echo "**Trivy dependency scan**"
+            echo
+            jq -r '[.Results[]?.Vulnerabilities[]?] as $v
+              | def n($s): [$v[] | select(.Severity == $s)] | length;
+                "\($v | length) vulnerabilities in declared dependencies (critical \(n("CRITICAL")), high \(n("HIGH")), medium \(n("MEDIUM")), low \(n("LOW")))"' "$RUNNER_TEMP/trivy.json"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to DefectDojo
+        if: github.event_name != 'pull_request'
+        env:
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_URL: ${{ vars.DEFECTDOJO_URL }}
+          DD_PRODUCT_TYPE: ${{ vars.DD_PRODUCT_TYPE }}
+        run: |
+          for v in DEFECTDOJO_TOKEN DEFECTDOJO_URL DD_PRODUCT_TYPE; do
+            [ -n "${!v}" ] || { echo "::error::$v is not set"; exit 1; }
+          done
+          curl -sS -L --fail-with-body -X POST "$DEFECTDOJO_URL/api/v2/reimport-scan/" \
+            -H "Authorization: Token $DEFECTDOJO_TOKEN" \
+            -F "scan_type=Trivy Scan" \
+            -F "test_title=Trivy dependencies" \
+            -F "product_name=${GITHUB_REPOSITORY#*/}" \
+            -F "product_type_name=$DD_PRODUCT_TYPE" \
+            -F "engagement_name=CI/CD Scans" \
+            -F "auto_create_context=true" \
+            -F "close_old_findings=true" \
+            -F "service=deps" \
+            -F "file=@$RUNNER_TEMP/trivy.json"

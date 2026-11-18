@@ -14,6 +14,7 @@ from sqlalchemy import func
 from ckanext.sse.password_policy import generate_password
 from .model import PackageAccessRequest, FormResponse
 from .audit import emit_access_request
+from . import data_access
 from .schemas import package_request_access_schema, data_reuse_schema
 import os
 from ckanext.sse.logic import (
@@ -186,12 +187,8 @@ def request_access_to_dataset(context, data_dict):
     }
 
     if user.get("sysadmin") or any(
-        user.get("email").lower().endswith("@" + domain.strip())
-        for domain in os.environ.get(
-            "CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS", ""
-        )
-        .lower()
-        .split(",")
+        (user.get("email") or "").lower().endswith("@" + domain)
+        for domain in data_access.allowed_email_domains()
     ):
         return already_have_access_error
 
@@ -398,44 +395,16 @@ def _transform_package_show(package_dict, frequencies, context):
 
     package_dict["is_up_to_date"] = is_up_to_date
 
-    user = context.get("auth_user_obj")
-    package_dict["has_access_to_resources"] = True
-
-    if package_dict.get("is_restricted"):
-        if not user or user.is_anonymous:
-            package_dict["has_access_to_resources"] = False
-        else:
-            is_sysadmin = user.sysadmin
-            is_email_on_the_allowed_domains = any(
-                user.email.lower().endswith("@" + domain.strip())
-                for domain in os.environ.get(
-                    "CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS", ""
-                )
-                .lower()
-                .strip()
-                .split(",")
-            )
-            belong_to_the_dataset_org = is_user_id_present_in_the_dict_list(
-                user.id,
-                tk.get_action("organization_show")(
-                    {"ignore_auth": True},
-                    {"id": package_dict.get("organization").get("id")},
-                ).get("users"),
-            )
-            is_already_allowed_to_see_the_dataset = is_user_id_present_in_the_dict_list(
-                user.id,
-                tk.get_action("package_collaborator_list")(
-                    {"ignore_auth": True}, {"id": package_dict.get("id")}
-                ),
-            )
-
-            if (
-                not is_sysadmin
-                and not is_email_on_the_allowed_domains
-                and not belong_to_the_dataset_org
-                and not is_already_allowed_to_see_the_dataset
-            ):
-                package_dict["has_access_to_resources"] = False
+    # Internal calls feed package_update, which would save the hidden URLs.
+    package_dict["has_access_to_resources"] = bool(
+        context.get("ignore_auth")
+        or not data_access.is_restricted(package_dict)
+        or data_access.has_restricted_access(
+            data_access.context_user(context),
+            package_dict.get("id"),
+            package_dict.get("owner_org"),
+        )
+    )
 
     if not package_dict["has_access_to_resources"]:
         package_dict["resources"] = hide_resources_field(package_dict["resources"])

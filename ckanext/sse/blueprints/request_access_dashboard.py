@@ -3,46 +3,18 @@ from logging import getLogger
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from ckan.plugins import toolkit
 from ckan import model
-from ckanext.sse.logic import is_user_id_present_in_the_dict_list
 from ckan.common import _
 from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
 from ckanext.sse import model as custom_model
 from ckanext.sse.logic import mail_rejected_user
 from ckanext.sse.audit import emit_access_request
-from ckanext.s3filestore.views.resource import resource_download
 from ckan.lib.pagination import Page
 
 import os
 access_requests_blueprint = Blueprint('access_requests', __name__)
-ssen_blueprint = Blueprint('ssen', __name__)
 
 
 log = getLogger(__name__)
-
-@ssen_blueprint.route('/dataset/<id>/resource/<resource_id>/download/<filename>')
-def custom_download(id, resource_id, filename):
-    pkg = toolkit.get_action('package_show')({}, {'id': id})
-
-    if pkg.get('is_restricted'):
-        privileged_context = {'ignore_auth': True}
-        user = model.User.get(toolkit.c.user)
-
-        if not user:
-            return redirect(f"{os.environ.get('CKAN_FRONTEND_SITE_URL')}/auth/error?error=You do not have access to this resource")    
-
-        is_sysadmin = user.sysadmin
-        is_email_on_the_allowed_domains = any(user.email.lower().endswith(
-            "@" + domain.strip()) for domain in os.environ.get('CKANEXT__SSE__REQUEST_ACCESS_ALLOWED_EMAIL_DOMAINS', '').lower().strip().split(','))
-        belong_to_the_dataset_org = is_user_id_present_in_the_dict_list(user.id, toolkit.get_action('organization_show')(privileged_context, {
-            'id': pkg.get('organization').get('id')}).get('users'))
-        is_already_allowed_to_see_the_dataset = is_user_id_present_in_the_dict_list(user.id, toolkit.get_action('package_collaborator_list')(
-            privileged_context, {'id': pkg.get('id')}))
-
-        if not is_sysadmin and not is_email_on_the_allowed_domains and not belong_to_the_dataset_org and not is_already_allowed_to_see_the_dataset:
-            return redirect(f"{os.environ.get('CKAN_FRONTEND_SITE_URL')}/auth/error?error=You not have access to this resource")
-
-    return resource_download(None, id, resource_id, filename)
-
 
 PAGE_SIZE = 25
 
@@ -266,4 +238,4 @@ def update_request_status():
 
 
 def get_blueprints():
-    return [access_requests_blueprint, ssen_blueprint]
+    return [access_requests_blueprint]

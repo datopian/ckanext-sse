@@ -55,6 +55,8 @@ import ckan.lib.api_token as api_token
 import ckan.model as model
 import ckan.plugins.toolkit as toolkit
 
+from ckanext.sse import data_access
+
 log = logging.getLogger(__name__)
 
 _ = toolkit._
@@ -248,6 +250,15 @@ def enforce_token_scope():
     # From here the request carries a scoped token: default-deny.
     action = _current_action()
     if action is not None and action in allowed:
+        return None
+
+    # The portal downloads files on the user's behalf; data_access still
+    # decides whether this user may read them.
+    if (
+        name == FRONTEND_TOKEN_NAME
+        and toolkit.request.method == "GET"
+        and data_access.DATA_PATH.match(toolkit.request.path or "")
+    ):
         return None
 
     log.warning(

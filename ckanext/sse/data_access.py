@@ -132,12 +132,26 @@ def auth_result(context, resource_ids):
     return {"success": True}
 
 
+def _schema_only(data_dict):
+    """A search that returns column definitions and no rows or counts, as
+    ``datastore_info`` makes through ``datastore_dictionary``."""
+    return (
+        str(data_dict.get("limit")) == "0"
+        and not tk.asbool(data_dict.get("include_total", True))
+        and not data_dict.get("q")
+        and not data_dict.get("filters")
+    )
+
+
 @tk.chained_auth_function
 def datastore_search(next_auth, context, data_dict):
     result = next_auth(context, data_dict)
-    if not result.get("success"):
+    if not result.get("success") or _schema_only(data_dict):
         return result
     return auth_result(context, [data_dict.get("resource_id") or data_dict.get("id")])
+
+
+datastore_search.auth_allow_anonymous_access = True
 
 
 @tk.chained_auth_function

@@ -8,6 +8,7 @@ from ckanext.sse.helpers import is_org_admin_by_package_id, is_admin_of_any_org
 from ckanext.sse import model as custom_model
 from ckanext.sse.logic import mail_rejected_user
 from ckanext.sse.audit import emit_access_request
+from ckanext.sse import data_access
 from ckan.lib.pagination import Page
 
 import os
@@ -177,6 +178,19 @@ def update_request_status():
     if action == 'approve':
         new_status = 'approved'
         rejection_message = None
+        # Requests made before the allowlist, or by users whose organisation
+        # has since been removed from it, cannot be approved.
+        requester = model.User.get(request_obj.user_id)
+        package = model.Package.get(request_obj.package_id)
+        if (package is not None and data_access.is_restricted(package)
+                and data_access.approved_organisation(requester.email if requester else None) is None):
+            emit_access_request(
+                "approved", "failure", request_id=request_id,
+                package_id=request_obj.package_id, requester_id=request_obj.user_id,
+                reason="user is not from an approved organisation",
+            )
+            flash(_(data_access.NOT_APPROVED_GRANT_MESSAGE), category='alert-danger')
+            return redirect(_back_to_dashboard())
     elif action == 'reject':
         new_status = 'rejected'
     elif action == 'revoke':

@@ -76,6 +76,7 @@ class SsePlugin(plugins.SingletonPlugin):
 
     # IConfigurable
     def configure(self, config_):
+        data_access.log_approved_organisations()
         from ckan.model import meta
         if not PackageAccessRequest.__table__.exists(meta.engine):
             PackageAccessRequest.__table__.create(meta.engine)

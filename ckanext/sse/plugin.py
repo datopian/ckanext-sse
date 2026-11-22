@@ -14,6 +14,7 @@ from ckanext.sse.blueprints import dataset, request_access_dashboard, admin, dat
 from .model import (
     PackageAccessRequest, PackageAccessRequestEvent, FormResponse,
     UserPasswordHistory, Dashboard, DashboardPreview, DashboardRedirect,
+    DashboardGroup,
 )
 import ckanext.sse.activity as activity
 from ckanext.sse.helpers import (
@@ -92,6 +93,7 @@ class SsePlugin(plugins.SingletonPlugin):
         Dashboard.__table__.create(meta.engine, checkfirst=True)
         DashboardPreview.__table__.create(meta.engine, checkfirst=True)
         DashboardRedirect.__table__.create(meta.engine, checkfirst=True)
+        DashboardGroup.__table__.create(meta.engine, checkfirst=True)
         # No-op unless ckanext.sse.mail_suppressed_users lists accounts.
         mail_suppression.install()
 

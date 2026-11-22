@@ -736,3 +736,63 @@ class DashboardRedirect(tk.BaseModel):
             Session.add(cls(package_id=package_id, slug=slug, dashboard_id=dashboard_id))
         else:
             found.dashboard_id = dashboard_id
+
+
+class DashboardGroup(tk.BaseModel):
+    """A showcased dashboard (an insight) listed in a collection (a CKAN group).
+
+    An insight can be in several collections. Each collection features at most
+    one insight, at the top of its highlights.
+    """
+
+    __tablename__ = "sse_dashboard_group"
+    __table_args__ = (
+        Index("idx_sse_dashboard_group_group_id", "group_id"),
+        Index(
+            "uq_sse_dashboard_group_featured", "group_id",
+            unique=True, postgresql_where=text("featured"),
+        ),
+    )
+
+    dashboard_id = Column(
+        Unicode(64), ForeignKey("sse_dashboard.id", ondelete="CASCADE"), primary_key=True)
+    # Purging a collection removes its links; CKAN's group_delete only marks it deleted.
+    group_id = Column(
+        String(60), ForeignKey("group.id", ondelete="CASCADE"), primary_key=True)
+    featured = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    @classmethod
+    def for_dashboards(cls, dashboard_ids):
+        """{dashboard_id: [link, ...]} for these dashboards, in one query."""
+        dashboard_ids = list(dashboard_ids)
+        out = {dashboard_id: [] for dashboard_id in dashboard_ids}
+        if not dashboard_ids:
+            return out
+        for link in Session.query(cls).filter(cls.dashboard_id.in_(dashboard_ids)).all():
+            out[link.dashboard_id].append(link)
+        return out
+
+    @classmethod
+    def for_group(cls, group_id):
+        return Session.query(cls).filter_by(group_id=group_id).all()
+
+    @classmethod
+    def replace(cls, dashboard_id, links):
+        """Set a dashboard's collections to ``links``: {group_id: featured}.
+
+        Featuring it in a collection takes that place from whichever insight
+        had it. The caller commits. The bulk delete and update run at once, so
+        the new links, inserted at commit, never meet a second featured insight
+        in the one-featured-per-collection index.
+        """
+        Session.query(cls).filter_by(dashboard_id=dashboard_id).delete(synchronize_session=False)
+        featured_in = [group_id for group_id, featured in links.items() if featured]
+        if featured_in:
+            (
+                Session.query(cls)
+                .filter(cls.group_id.in_(featured_in), cls.featured.is_(True))
+                .update({cls.featured: False}, synchronize_session=False)
+            )
+        for group_id, featured in links.items():
+            Session.add(cls(dashboard_id=dashboard_id, group_id=group_id, featured=featured))

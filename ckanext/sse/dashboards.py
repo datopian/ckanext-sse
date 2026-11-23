@@ -14,7 +14,7 @@ from datetime import datetime
 import ckan.plugins.toolkit as tk
 from ckan import model
 
-from .model import Dashboard, DashboardPreview, DashboardRedirect
+from .model import Dashboard, DashboardGroup, DashboardPreview, DashboardRedirect
 
 SCHEMA_VERSION = 1
 
@@ -29,6 +29,7 @@ MAX_WIDGET_FILTERS = 20
 MAX_MAP_LAYERS = 10
 MAX_TOOLTIP_FIELDS = 10
 MAX_PREVIEW_BYTES = 512 * 1024
+MAX_COLLECTIONS = 20
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -196,6 +197,14 @@ def auth_reorder(context, data_dict):
 
 def auth_showcase_targets(context, data_dict):
     return _signed_in(context)
+
+
+@tk.auth_allow_anonymous_access
+def auth_group_list(context, data_dict):
+    # Open to everyone: collection pages are public. The action returns only
+    # public insights in data assets the caller can see, and only what their
+    # cards show; opening one, and its data, still needs signing in.
+    return {"success": True}
 
 
 # Config validation
@@ -644,7 +653,7 @@ def _with_package(dashboard, item=None):
     return item
 
 
-def _summary(dashboard, previews=None):
+def _summary(dashboard, previews=None, links=None):
     item = dashboard.as_dict()
     # When its card preview was taken, if it has one.
     item["preview_at"] = (previews or {}).get(dashboard.id)
@@ -652,7 +661,84 @@ def _summary(dashboard, previews=None):
     item["layout"] = _layout(config)
     # Which resources it reads, e.g. for a resource's "Insights that use this data".
     item["resources"] = sorted({rid for rid, _ in _widget_names(config) if rid})
+    item["groups"] = _groups_of((links or {}).get(dashboard.id, []))
     return _with_package(dashboard, item)
+
+
+def _summaries(dashboards, **extra):
+    """List items for these dashboards, loading previews and collections once."""
+    ids = [d.id for d in dashboards]
+    previews = DashboardPreview.taken_at(ids)
+    links = DashboardGroup.for_dashboards(ids)
+    return [dict(_summary(d, previews, links), **extra) for d in dashboards]
+
+
+# Collections
+
+def _collection(name_or_id):
+    """An active collection (a CKAN group, not an organization), or None."""
+    group = model.Group.get(name_or_id) if isinstance(name_or_id, str) and name_or_id else None
+    if group is None or group.state != "active" or group.is_organization or group.type != "group":
+        return None
+    return group
+
+
+def _groups_of(links):
+    """A dashboard's collections as the API shows them: active ones, by title."""
+    out = []
+    for link in links:
+        group = model.Group.get(link.group_id)
+        if group is not None and group.state == "active":
+            out.append({
+                "id": group.id,
+                "name": group.name,
+                "title": group.title or group.name,
+                "featured": bool(link.featured),
+            })
+    return sorted(out, key=lambda g: g["title"].lower())
+
+
+def _groups_for(dashboard_id):
+    return _groups_of(DashboardGroup.for_dashboards([dashboard_id])[dashboard_id])
+
+
+def _parse_groups(value):
+    """``groups`` as {group_id: featured}.
+
+    Each entry is a collection name or id, or ``{"name": ..., "featured": bool}``.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise tk.ValidationError({"groups": ["is not valid JSON"]})
+    if not isinstance(value, list):
+        raise tk.ValidationError({"groups": ["must be a list of collections"]})
+    links, unknown = {}, []
+    for entry in value:
+        featured = False
+        if isinstance(entry, dict):
+            featured = entry.get("featured") is True
+            entry = entry.get("name") or entry.get("id")
+        group = _collection(entry)
+        if group is None:
+            unknown.append(str(entry))
+            continue
+        links[group.id] = links.get(group.id, False) or featured
+    if unknown:
+        raise tk.ValidationError({"groups": ["unknown collections: " + ", ".join(unknown)]})
+    if len(links) > MAX_COLLECTIONS:
+        raise tk.ValidationError({"groups": ["at most {} collections".format(MAX_COLLECTIONS)]})
+    return links
+
+
+def _highlight_widget(config):
+    """The widget a collection's highlights show: the first chart, key figure or map."""
+    for row in (config or {}).get("rows") or []:
+        for cell in (row or {}).get("cells") or []:
+            if isinstance(cell, dict) and cell.get("type") in ("chart", "kpi", "map"):
+                return {"id": cell.get("id"), "type": cell["type"]}
+    return None
 
 
 # Actions
@@ -700,6 +786,7 @@ def dashboard_show(context, data_dict):
     item = _with_package(dashboard)
     item["can_edit"] = _can_edit(context, dashboard)
     item["preview_at"] = DashboardPreview.taken_at([dashboard.id]).get(dashboard.id)
+    item["groups"] = _groups_for(dashboard.id)
     return item
 
 
@@ -734,8 +821,7 @@ def dashboard_list(context, data_dict):
         # Public ones are listed to anyone who can see the data asset, even
         # signed out (its page links them); opening one needs signing in.
         listed = [d for d in Dashboard.for_package(package.id) if editor or d.visibility == "public"]
-        previews = DashboardPreview.taken_at(d.id for d in listed)
-        return [dict(_summary(d, previews), can_edit=editor) for d in listed]
+        return _summaries(listed, can_edit=editor)
     if tk.asbool(data_dict.get("showcased")):
         _require_user(context)
         editable = {}
@@ -745,13 +831,10 @@ def dashboard_list(context, data_dict):
                 editable[d.package_id] = _package_active(d.package_id) and _can("package_update", context, d.package_id)
             if editable[d.package_id]:
                 listed.append(d)
-        previews = DashboardPreview.taken_at(d.id for d in listed)
-        out = [dict(_summary(d, previews), can_edit=True) for d in listed]
+        out = _summaries(listed, can_edit=True)
         return sorted(out, key=lambda x: x["updated_at"], reverse=True)
     user_id = data_dict.get("user_id") or _require_user(context).id
-    listed = Dashboard.for_user(user_id)
-    previews = DashboardPreview.taken_at(d.id for d in listed)
-    return [_summary(d, previews) for d in listed]
+    return _summaries(Dashboard.for_user(user_id))
 
 
 def dashboard_update(context, data_dict):
@@ -761,6 +844,11 @@ def dashboard_update(context, data_dict):
     :param title: optional
     :param description: optional
     :param config: optional, replaces the whole config
+    :param visibility: optional, ``private`` or ``public`` (showcased dashboards only)
+    :param groups: optional, replaces the collections it is listed in
+        (showcased dashboards only). Each entry is a collection name or id,
+        or ``{"name": ..., "featured": true}`` to feature it at the top of that
+        collection's highlights, which takes the place from any other insight.
     """
     tk.check_access("sse_dashboard_update", context, data_dict)
     dashboard = _get_or_404(data_dict)
@@ -779,10 +867,16 @@ def dashboard_update(context, data_dict):
         if data_dict["visibility"] not in VISIBILITIES:
             raise tk.ValidationError({"visibility": ["must be private or public"]})
         dashboard.visibility = data_dict["visibility"]
+    if "groups" in data_dict:
+        if not dashboard.package_id:
+            raise tk.ValidationError({"groups": ["only applies to dashboards showcased in a data asset"]})
+        DashboardGroup.replace(dashboard.id, _parse_groups(data_dict["groups"]))
     dashboard.updated_by = _require_user(context).id
     dashboard.updated_at = datetime.utcnow()
     model.Session.commit()
-    return dashboard.as_dict()
+    item = dashboard.as_dict()
+    item["groups"] = _groups_for(dashboard.id)
+    return item
 
 
 def dashboard_delete(context, data_dict):
@@ -938,6 +1032,58 @@ def dashboard_showcase_targets(context, data_dict):
     ]
 
 
+@tk.side_effect_free
+def dashboard_group_list(context, data_dict):
+    """A collection's insights, for its page. Open to everyone, signed in or
+    not: only public insights in data assets the caller can see are listed,
+    and only what their cards show (no config, no data).
+
+    :param group_id: the collection (id or name)
+    :returns: the featured insight first, then the most recently updated. Each
+        has ``featured``, ``layout`` (as ``sse_dashboard_list``) and
+        ``highlight_widget``: the id and type of the widget its highlight shows,
+        or null when it has only text.
+    """
+    tk.check_access("sse_dashboard_group_list", context, data_dict)
+    group_id = data_dict.get("group_id")
+    if not isinstance(group_id, str) or not group_id.strip():
+        raise tk.ValidationError({"group_id": ["Missing value"]})
+    group = _collection(group_id.strip())
+    if group is None:
+        raise tk.ObjectNotFound(tk._("Collection not found"))
+    featured = {link.dashboard_id: link.featured for link in DashboardGroup.for_group(group.id)}
+    if not featured:
+        return []
+    dashboards = (
+        model.Session.query(Dashboard)
+        .filter(Dashboard.id.in_(list(featured)), Dashboard.visibility == "public",
+                Dashboard.package_id.isnot(None))
+        .all()
+    )
+    visible = {}
+    listed = []
+    for d in dashboards:
+        if d.package_id not in visible:
+            visible[d.package_id] = _package_active(d.package_id) and _can("package_show", context, d.package_id)
+        if visible[d.package_id]:
+            listed.append(d)
+    previews = DashboardPreview.taken_at(d.id for d in listed)
+    out = []
+    for d in listed:
+        out.append(_with_package(d, {
+            "id": d.id,
+            "title": d.title,
+            "slug": d.slug,
+            "description": d.description,
+            "updated_at": d.updated_at.isoformat(),
+            "featured": bool(featured[d.id]),
+            "layout": _layout(d.config),
+            "highlight_widget": _highlight_widget(d.config),
+            "preview_at": previews.get(d.id),
+        }))
+    return sorted(out, key=lambda x: (x["featured"], x["updated_at"]), reverse=True)
+
+
 def _image_type(data):
     """The image's type from its first bytes: WebP, PNG or JPEG only."""
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
@@ -1010,6 +1156,7 @@ def get_actions():
         "sse_dashboard_showcase_targets": dashboard_showcase_targets,
         "sse_dashboard_preview_update": dashboard_preview_update,
         "sse_dashboard_preview_show": dashboard_preview_show,
+        "sse_dashboard_group_list": dashboard_group_list,
     }
 
 
@@ -1026,4 +1173,5 @@ def get_auth_functions():
         "sse_dashboard_showcase_targets": auth_showcase_targets,
         "sse_dashboard_preview_update": auth_preview_update,
         "sse_dashboard_preview_show": auth_preview_show,
+        "sse_dashboard_group_list": auth_group_list,
     }

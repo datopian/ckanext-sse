@@ -274,6 +274,20 @@ ALLOWED_WHILE_EXPIRED = frozenset(
 # Where an expired user is sent.
 CHANGE_PASSWORD_ENDPOINT = "user.edit"
 
+# File-download views. A request to one of these that was authenticated with an
+# API token is let through even when the token's owner has an expired password.
+# DataPusher fetches uploaded files from here with the site user's token and
+# the redirect to the profile form made every load fail once that user's
+# password aged out. Only these views: every other non-API page still redirects.
+# ``resource.download`` is CKAN's own view; ``s3_resource.resource_download`` is
+# the one ckanext-s3filestore registers over it for uploaded files.
+TOKEN_DOWNLOAD_ENDPOINTS = frozenset(
+    {
+        "resource.download",
+        "s3_resource.resource_download",
+    }
+)
+
 # Request attribute holding this request's reconciled history row, so a page
 # that consults the policy more than once still costs one query.
 _LATEST_ATTR = "sse_password_latest"
@@ -1271,6 +1285,12 @@ def _enforce_rotation():
     blueprint = endpoint.split(".")[0]
     if endpoint in ALLOWED_WHILE_EXPIRED or blueprint in ("static",
                                                           "webassets"):
+        return None
+
+    # ``login_via_auth_header`` is set by CKAN only when the request was
+    # authenticated by an API token, never by a browser session, so a person
+    # with an expired password still cannot download files from the portal.
+    if g.get("login_via_auth_header") and endpoint in TOKEN_DOWNLOAD_ENDPOINTS:
         return None
 
     remaining = days_until_expiry(user)

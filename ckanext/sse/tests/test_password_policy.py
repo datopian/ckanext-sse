@@ -12,8 +12,10 @@ Run with::
 
 import datetime
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
+from flask import g, request
 from flask_login import login_user
 from passlib.hash import pbkdf2_sha512
 
@@ -436,6 +438,42 @@ class TestRotation:
         user = make_user()
         backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
         assert enforce_for(app, "/api/3/action/status_show", user) is None
+
+    def test_an_expired_password_does_not_block_a_token_download(self, app):
+        user = make_user()
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
+        url = "/dataset/some-dataset/resource/some-resource/download/f.csv"
+        with request_for(app, url, user):
+            g.login_via_auth_header = True
+            assert pp.enforce_rotation() is None
+
+    def test_an_expired_password_does_not_block_an_s3_token_download(
+            self, app):
+        user = make_user()
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
+        with request_for(app, "/dataset", user):
+            g.login_via_auth_header = True
+            request.url_rule = SimpleNamespace(
+                endpoint="s3_resource.resource_download")
+            assert pp.enforce_rotation() is None
+
+    def test_an_expired_password_still_blocks_a_session_download(self, app):
+        user = make_user()
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
+        url = "/dataset/some-dataset/resource/some-resource/download/f.csv"
+        # No token: a browser session for the same user.
+        response = enforce_for(app, url, user)
+        assert response is not None
+        assert response.status_code == 302
+
+    def test_an_expired_password_still_blocks_a_token_page(self, app):
+        user = make_user()
+        backdate(user["id"], days=pp.DEFAULT_EXPIRY_DAYS + 30)
+        with request_for(app, "/dataset", user):
+            g.login_via_auth_header = True
+            response = pp.enforce_rotation()
+        assert response is not None
+        assert response.status_code == 302
 
     def test_an_expired_password_does_not_block_logout(self, app):
         user = make_user()

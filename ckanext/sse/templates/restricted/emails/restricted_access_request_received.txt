@@ -1,0 +1,13 @@
+{% trans %}Dear{% endtrans %} {{ user_name }},
+
+{% trans %}Your access request has been received.{% endtrans %}
+
+{% trans %}Sign in to the portal to follow its status:{% endtrans %} {{ portal_url }}
+
+{% trans %}Best regards,{% endtrans %}
+{% trans %}{{ site_title }} Administrator{% endtrans %}
+
+
+{% trans %}This is an automatically generated e-mail, please do not reply to it.{% endtrans %}
+
+{% trans %}Message sent from {{ site_title }} ({{ site_url }}){% endtrans %}

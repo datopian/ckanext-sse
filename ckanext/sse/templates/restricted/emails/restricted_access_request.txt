@@ -1,14 +1,8 @@
 {% trans %}Dear{% endtrans %} Organisation Administrator,
 
-{% trans %}A user has requested access to your data in {{ site_title }}:{% endtrans %}
-* {% trans %}Dataset:{% endtrans %} {{ package_name }}
-* {% trans %}User:{% endtrans %} {{ user_name }} ({{ user_email }})
-* {% trans %}Organisation:{% endtrans %} {{ user_organization }}
-* {% trans %}Message:{% endtrans %} {{ message }}
+{% trans %}A new dataset access request requires review.{% endtrans %}
 
-{% trans %}You can allow this user to access your resources by approving his request in this link: {{ access_request_dashboard_link }}.{% endtrans %}
-
-{% trans %}If you have any questions about how to proceed with this request, please contact the {{ site_title }} support at {{ admin_email_to }}.{% endtrans %}
+{% trans %}Sign in to review it:{% endtrans %} {{ access_request_dashboard_link }}
 
 {% trans %}Best regards,{% endtrans %}
 {% trans %}{{ site_title }} Administrator{% endtrans %}

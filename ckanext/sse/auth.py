@@ -120,3 +120,8 @@ def my_access_requests(context, data_dict):
     in, so this only has to say yes; the action scopes rows to the caller.
     """
     return {'success': True}
+
+
+def my_data_reuse_submissions(context, data_dict):
+    """Any signed-in user may list their own submissions (rows are scoped in the action)."""
+    return {'success': True}

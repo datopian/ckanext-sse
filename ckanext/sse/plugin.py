@@ -266,6 +266,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_collaborator_delete": action.package_collaborator_delete,
             "request_access_to_dataset": action.request_access_to_dataset,
             "my_access_requests": action.my_access_requests,
+            "my_data_reuse_submissions": action.my_data_reuse_submissions,
             "package_update": action.package_update,
             "package_show": action.package_show,
             "user_login": action.user_login,
@@ -301,6 +302,7 @@ class SsePlugin(plugins.SingletonPlugin):
     def get_auth_functions(self):
         return {
             "my_access_requests": auth.my_access_requests,
+            "my_data_reuse_submissions": auth.my_data_reuse_submissions,
             "data_reuse_create": auth.data_reuse_create,
             "data_reuse_list": auth.data_reuse_list,
             "data_reuse_show": auth.data_reuse_show,

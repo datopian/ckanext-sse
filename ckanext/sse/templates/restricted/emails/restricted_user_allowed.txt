@@ -2,7 +2,7 @@
 
 {% trans %}Your access request has been approved.{% endtrans %}
 
-{% trans %}Sign in to the portal to access the data:{% endtrans %} {{ portal_url }}
+{% trans %}Sign in to the portal to access the data:{% endtrans %} {{ access_requests_url }}
 
 {% trans %}Best regards,{% endtrans %}
 {% trans %}{{ site_title }} Administrator{% endtrans %}

@@ -265,6 +265,7 @@ class SsePlugin(plugins.SingletonPlugin):
             "package_collaborator_create": action.package_collaborator_create,
             "package_collaborator_delete": action.package_collaborator_delete,
             "request_access_to_dataset": action.request_access_to_dataset,
+            "my_access_requests": action.my_access_requests,
             "package_update": action.package_update,
             "package_show": action.package_show,
             "user_login": action.user_login,
@@ -299,6 +300,7 @@ class SsePlugin(plugins.SingletonPlugin):
     # IAuthFunctions
     def get_auth_functions(self):
         return {
+            "my_access_requests": auth.my_access_requests,
             "data_reuse_create": auth.data_reuse_create,
             "data_reuse_list": auth.data_reuse_list,
             "data_reuse_show": auth.data_reuse_show,

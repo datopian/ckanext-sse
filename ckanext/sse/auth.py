@@ -111,3 +111,12 @@ def datastore_search_sql(next_auth, context, data_dict):
         }
 
     return next_auth(context, data_dict)
+
+
+def my_access_requests(context, data_dict):
+    """Any signed-in user may list their own requests.
+
+    CKAN already rejects anonymous callers for auth functions that do not opt
+    in, so this only has to say yes; the action scopes rows to the caller.
+    """
+    return {'success': True}

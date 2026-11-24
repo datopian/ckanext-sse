@@ -2,7 +2,7 @@
 
 {% trans %}The status of your access request has changed.{% endtrans %}
 
-{% trans %}Sign in to the portal for details:{% endtrans %} {{ portal_url }}
+{% trans %}Sign in to the portal to see the decision and the reason:{% endtrans %} {{ access_requests_url }}
 
 {% trans %}This is an automatically generated e-mail, please do not reply to it.{% endtrans %}
 

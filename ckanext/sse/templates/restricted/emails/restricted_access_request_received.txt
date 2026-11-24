@@ -2,7 +2,7 @@
 
 {% trans %}Your access request has been received.{% endtrans %}
 
-{% trans %}Sign in to the portal to follow its status:{% endtrans %} {{ portal_url }}
+{% trans %}Sign in to the portal to follow its status:{% endtrans %} {{ access_requests_url }}
 
 {% trans %}Best regards,{% endtrans %}
 {% trans %}{{ site_title }} Administrator{% endtrans %}

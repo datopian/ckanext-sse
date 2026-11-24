@@ -182,6 +182,46 @@ def package_collaborator_delete(up_func, context, data_dict):
     return result
 
 
+@tk.side_effect_free
+def my_access_requests(context, data_dict):
+    """List the signed-in user's own dataset access requests.
+
+    Takes no user id on purpose: the owner is always the caller, so one user
+    can never read another's requests. This is where a requester reads the
+    admin's reason, which is no longer sent by email (SC-8 / AC-21).
+
+    :returns: newest first; each item has id, status, created_at, decided_at,
+        message, rejection_message (only for rejected or revoked), and the
+        dataset and organisation names and titles.
+    """
+    tk.check_access("my_access_requests", context, data_dict)
+
+    requests = PackageAccessRequest.get_by_user(tk.current_user.id)
+    requests.sort(key=lambda r: r.created_at or datetime.datetime.min, reverse=True)
+
+    result = []
+    for r in requests:
+        decision = r.last_decision
+        pkg = r.package
+        org = r.organization
+        result.append({
+            "id": r.id,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "decided_at": decision.created_at.isoformat()
+            if decision and decision.created_at else None,
+            "message": r.message,
+            # The reason only means something once a decision was made.
+            "rejection_message": r.rejection_message
+            if r.status in ("rejected", "revoked") else None,
+            "package_name": pkg.name if pkg else None,
+            "package_title": (pkg.title or pkg.name) if pkg else None,
+            "organization_name": org.name if org else None,
+            "organization_title": (org.title or org.name) if org else None,
+        })
+    return result
+
+
 @logic.validate(package_request_access_schema)
 @tk.side_effect_free
 def request_access_to_dataset(context, data_dict):

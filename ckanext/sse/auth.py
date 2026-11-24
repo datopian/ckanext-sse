@@ -88,3 +88,12 @@ def data_reuse_delete(context, data_dict):
     Only sysadmins can delete submissions.
     """
     return {'success': False}
+
+
+def my_access_requests(context, data_dict):
+    """Any signed-in user may list their own requests.
+
+    CKAN already rejects anonymous callers for auth functions that do not opt
+    in, so this only has to say yes; the action scopes rows to the caller.
+    """
+    return {'success': True}

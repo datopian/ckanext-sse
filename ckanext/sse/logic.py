@@ -122,37 +122,39 @@ def restricted_check_user_resource_access(user, resource_dict, package_dict):
     }
 
 
+def _portal_url():
+    # Emails link to the public portal frontend, not CKAN: recipients sign in
+    # there to see the details that no longer travel inside the email (SC-8 / AC-21).
+    return os.environ.get('CKAN_FRONTEND_SITE_URL') or config.get('ckan.site_url')
+
+
+def _generic_mail_vars(site_title=None, site_url=None):
+    return {
+        'site_title': site_title or os.environ.get('CKAN_FRONTEND_SITE_TITLE') or config.get('ckan.site_title'),
+        'site_url': site_url or _portal_url(),
+        'portal_url': _portal_url(),
+        # Where requesters read the status and the admin's reason.
+        'access_requests_url': _portal_url().rstrip('/') + '/my-followed-data/access-requests',
+    }
+
+
 def mail_allowed_user(user_id, package, org_id, package_url=None, site_title=None, site_url=None):
     log.debug('restricted_mail_allowed_user: Notifying "{}"'.format(user_id))
     try:
-        # Get user information
         context = {}
         context["ignore_auth"] = True
         context["keep_email"] = True
         user = toolkit.get_action("user_show")(context, {"id": user_id})
         user_email = user["email"]
         user_name = user.get("display_name", user["name"])
-        package_name = package.get("name", package["id"])
-
-        # maybe check user[activity_streams_email_notifications]==True
 
         mail_body = restricted_allowed_user_mail_body(
             user, package, package_url, site_title, site_url)
-        mail_subject = _("Access granted to dataset {}'s resources").format(package_name)
+        # Fixed subject: dataset name must not appear in email metadata.
+        mail_subject = _("Your access request has been approved")
 
-        # Send mail to user
         mailer.mail_recipient(user_name, user_email, mail_subject, mail_body)
-        # org_admins = get_org_admins({'ignore_auth': True}, org_id)
 
-        # for admin in org_admins:
-        # Send copy to admin
-        # mailer.mail_recipient(
-        #     admin.get('fullname') or admin.get(
-        #         'display_name') or admin.get('name'),
-        #     admin.get('email'),
-        #     "Fwd: {}".format(mail_subject),
-        #     mail_body,
-        # )
         mailer.mail_recipient(
             'Organization Administrators',
             os.environ.get('CKANEXT__SSE__ADMINS_EMAIL'),
@@ -169,22 +171,10 @@ def mail_allowed_user(user_id, package, org_id, package_url=None, site_title=Non
 
 
 def restricted_allowed_user_mail_body(user, package, package_link=None, site_title=None, site_url=None):
-    if not package_link:
-        package_link = config.get("ckan.site_url") + toolkit.url_for(
-            controller="package",
-            action="read",
-            id=package.get("package_id"),
-            package_id=package.get("id"),
-        )
-
-    extra_vars = {
-        "site_title": site_title or config.get("ckan.site_title"),
-        "site_url": site_url or config.get("ckan.site_url"),
-        "user_name": user.get("display_name", user["name"]),
-        "package_name": package.get("name", package["id"]),
-        "package_link": package_link,
-        "package_url": package.get("url"),
-    }
+    # package/package_link stay in the signature for existing callers, but the
+    # body deliberately no longer names the dataset.
+    extra_vars = _generic_mail_vars(site_title, site_url)
+    extra_vars["user_name"] = user.get("display_name", user["name"])
 
     return render_jinja2("restricted/emails/restricted_user_allowed.txt", extra_vars)
 
@@ -256,75 +246,35 @@ def get_org_admins(context, org_id_or_name):
 
 
 def send_request_mail_to_org_admins(data):
-    # org_admins = [admin for admin in get_org_admins(
-    #     {'ignore_auth': True}, data.get('org_id')) if admin.get('email')]
     success = False
     try:
         access_request_dashboard_link = toolkit.url_for(
             action='access_requests_dashboard',
             controller='access_requests')
 
-        package_link = toolkit.url_for(
-            action='read',
-            controller='dataset',
-            id=data.get('package_name'),
-            package_id=data.get('package_id'))
+        extra_vars = _generic_mail_vars(data.get('site_title'), data.get('site_url'))
+        # Admins review inside CKAN, so their link stays on the CKAN site.
+        extra_vars['access_request_dashboard_link'] = \
+            f"{config.get('ckan.site_url')}{access_request_dashboard_link}"
 
-        extra_vars = {
-            'site_title': data.get('site_title') or config.get('ckan.site_title'),
-            'site_url': data.get('site_url') or config.get('ckan.site_url'),
-            'maintainer_name': 'Organisation Administrator',
-            'user_id': data.get('user_id', 'the user id'),
-            'user_name': data.get('user_name', ''),
-            'user_email': data.get('user_email', ''),
-            'package_name': data.get('package_name', ''),
-            'package_link': data.get('package_link') or f"{config.get('ckan.site_url')}{package_link}",
-            'access_request_dashboard_link': f"{config.get('ckan.site_url')}{access_request_dashboard_link}",
-            'user_organization': data.get('user_organization', 'No organisation informed'),
-            'message': data.get('message', ''),
-            'admin_email_to': config.get('email_to', 'email_to_undefined')}
+        subject = _('A new dataset access request requires review')
 
-        mail_template = 'restricted/emails/restricted_access_request.txt'
-        body = render(mail_template, extra_vars)
+        # No reply-to: it would put the requester's address in the headers.
+        mailer.mail_recipient(
+            recipient_name='Organization Administrators',
+            recipient_email=os.environ.get('CKANEXT__SSE__ADMINS_EMAIL'),
+            subject=subject,
+            body=render('restricted/emails/restricted_access_request.txt', extra_vars),
+            body_html=None)
 
-        subject = \
-            _('Access Request to {0}\'s ({1}) resources from {2}').format(
-                data.get('package_title', ''),
-                data.get('package_name', ''),
-                data.get('user_name', ''))
-        headers = {
-            # 'CC': ",".join([admin_dict.get('email') for admin_dict in org_admins]),
-            'reply-to': data.get('user_email')}
-
-        # for admin_dict in org_admins:
-        #     # CC doesn't work and mailer cannot send to multiple addresses
-        #     mailer.mail_recipient(recipient_name=admin_dict.get('fullname') or admin_dict.get('display_name') or admin_dict.get('name'), recipient_email=admin_dict.get('email'), subject='Fwd: ' + subject, body=body,
-        #                           body_html=None, headers=headers)
-
-        mailer.mail_recipient(recipient_name='Organization Administrators', recipient_email=os.environ.get('CKANEXT__SSE__ADMINS_EMAIL'), subject='Fwd: ' + subject, body=body,
-                              body_html=None, headers=headers)
-
-        # Special copy for the user (no links)
-        email = data.get('user_email')
-        name = data.get('user_name', 'User')
-
-        extra_vars['package_link'] = '[...]'
-        extra_vars['access_request_dashboard_link'] = '[...]'
-        extra_vars['admin_email_to'] = '[...]'
-        extra_vars['site_url'] = os.environ.get(
-            'CKAN_FRONTEND_SITE_URL') or config.get('ckan.site_url')
-        extra_vars['site_title'] = os.environ.get(
-            'CKAN_FRONTEND_SITE_TITLE') or config.get('ckan.site_title')
-
-        body = render(
-            'restricted/emails/restricted_access_request.txt', extra_vars)
-
-        body_user = _(
-            'Please find below a copy of the access '
-            'request mail sent. \n\n >> {}'
-        ).format(body.replace("\n", "\n >> "))
-        mailer.mail_recipient(recipient_name=name, recipient_email=email, subject='Fwd: ' + subject, body=body_user,
-                              body_html=None, headers=headers)
+        user_vars = _generic_mail_vars()
+        user_vars['user_name'] = data.get('user_name') or 'User'
+        mailer.mail_recipient(
+            recipient_name=data.get('user_name', 'User'),
+            recipient_email=data.get('user_email'),
+            subject=_('Your access request has been received'),
+            body=render('restricted/emails/restricted_access_request_received.txt', user_vars),
+            body_html=None)
         success = True
 
     except mailer.MailerException as mailer_exception:
@@ -335,48 +285,26 @@ def send_request_mail_to_org_admins(data):
 
 
 def mail_rejected_user(data, rejection_message: str, status):
-    # org_admins = [admin for admin in get_org_admins(
-    # {'ignore_auth': True}, data.get('org_id')) if admin.get('email')]
+    # rejection_message is accepted for existing callers but never emailed: it
+    # is admin free text, and the client asked for details to stay in the portal.
     success = False
     try:
-        extra_vars = {
-            'site_title': data.get('site_title') or config.get('ckan.site_title'),
-            'site_url': data.get('site_url') or config.get('ckan.site_url'),
-            'user_name': data.get('user_name', ''),
-            'user_email': data.get('user_email', ''),
-            'status': status,
-            'package_name': data.get('package_name', ''),
-            'rejection_message': rejection_message,
-            'admin_email_to': config.get('email_to', 'email_to_undefined')}
+        extra_vars = _generic_mail_vars(data.get('site_title'), data.get('site_url'))
+        extra_vars['user_name'] = data.get('user_name', '')
 
-        mail_template = 'restricted/emails/restricted_access_request_rejected.txt'
-        body = render(mail_template, extra_vars)
+        body = render(
+            'restricted/emails/restricted_access_request_rejected.txt', extra_vars)
+        subject = _('The status of your access request has changed')
 
-        subject = \
-            _('Access Request to {0}\'s ({1}) resources from {2}').format(
-                data.get('package_title', ''),
-                data.get('package_name', ''),
-                data.get('user_name', ''))
+        mailer.mail_recipient(
+            recipient_name=data.get('user_name', ''),
+            recipient_email=data.get('user_email'),
+            subject=subject, body=body, body_html=None)
 
-        mailer.mail_recipient(recipient_name=data.get('user_name', ''), recipient_email=data.get(
-            'user_email'), subject='Fwd: ' + subject, body=body, body_html=None)
-
-        body = render(mail_template, extra_vars)
-
-        body_user = _(
-            'Please find below a copy of the access '
-            'request mail sent. \n\n >> {}'
-        ).format(body.replace("\n", "\n >> "))
-
-        headers = {
-            # 'CC': ",".join([admin_dict.get('email') for admin_dict in org_admins]),
-            'reply-to': data.get('user_email')}
-
-        # for admin_dict in org_admins:
-        #     mailer.mail_recipient(recipient_name=admin_dict.get('fullname') or admin_dict.get('display_name') or admin_dict.get('name'), recipient_email=admin_dict.get('email'), subject='Fwd: ' + subject, body=body_user,
-        #                           body_html=None, headers=headers)
-        mailer.mail_recipient(recipient_name='Organization Administrators', recipient_email=os.environ.get('CKANEXT__SSE__ADMINS_EMAIL'), subject='Fwd: ' + subject, body=body_user,
-                              body_html=None, headers=headers)
+        mailer.mail_recipient(
+            recipient_name='Organization Administrators',
+            recipient_email=os.environ.get('CKANEXT__SSE__ADMINS_EMAIL'),
+            subject='Fwd: ' + subject, body=body, body_html=None)
 
         success = True
 
@@ -422,16 +350,8 @@ def reuse_email_notification(reuse_data, _type, feedback=None):
             log.warning(f"No email address found for submission {reuse_data['id']}")
             return False
 
-        if _type == "rejected":
-            dataset_dict = toolkit.get_action("package_show")(
-                {"ignore_auth": True}, {"id": reuse_data["package_id"]})
-        else:
-            dataset_dict = {}
-
         for email in notification_email:
             extra_vars = { 
-                "feedback": feedback,
-                "dataset_title": dataset_dict.get("title", ""),
                 "admin_name": email['name'],
                 "site_title": os.environ.get("CKAN_FRONTEND_SITE_TITLE")
                 or config.get("ckan.site_title"),
@@ -445,7 +365,7 @@ def reuse_email_notification(reuse_data, _type, feedback=None):
                 subject = _("Your data reuse submission has been approved")
             elif _type == "rejected":
                 template = "data_reuse/emails/submission_rejected.txt"
-                subject = _("Your data reuse submission has been rejected")
+                subject = _("Update on your data reuse submission")
             elif _type == "new":
                 template = "data_reuse/emails/submission_new.txt"
                 subject = _("New data reuse submission has been received")

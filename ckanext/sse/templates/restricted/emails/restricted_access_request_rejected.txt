@@ -1,9 +1,8 @@
 {% trans %}Dear{% endtrans %} {{ user_name }},
 
-{% trans %}Your access data request to the {{package_name}} resources has been {{status}}.{% endtrans %}
+{% trans %}The status of your access request has changed.{% endtrans %}
 
-{{ rejection_message }}
-{% trans %}Please don't hesitate to resubmit your request.{% endtrans %}
+{% trans %}Sign in to the portal to see the decision and the reason:{% endtrans %} {{ access_requests_url }}
 
 {% trans %}This is an automatically generated e-mail, please do not reply to it.{% endtrans %}
 

@@ -106,6 +106,10 @@ FRONTEND_TOKEN_ACTIONS = frozenset(
         "tag_list",
         "data_reuse_list",
         "data_reuse_show",
+        # the signed-in user's own decisions, read on the portal tabs; both
+        # actions scope rows to the caller
+        "my_access_requests",
+        "my_data_reuse_submissions",
         # -- showcase reads --
         "ckanext_showcase_list",
         "ckanext_showcase_show",

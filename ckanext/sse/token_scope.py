@@ -110,6 +110,9 @@ FRONTEND_TOKEN_ACTIONS = frozenset(
         # actions scope rows to the caller
         "my_access_requests",
         "my_data_reuse_submissions",
+        # yesterday's activity for the sysadmin-only portal Daily Report page;
+        # the action itself refuses anyone who is not a sysadmin
+        "daily_report_activity",
         # -- showcase reads --
         "ckanext_showcase_list",
         "ckanext_showcase_show",

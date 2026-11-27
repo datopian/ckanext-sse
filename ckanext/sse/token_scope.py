@@ -102,6 +102,7 @@ FRONTEND_TOKEN_ACTIONS = frozenset(
         "current_package_list_with_resources",
         "resource_show",
         "resource_activity_list",
+        "resource_activity_page",
         # -- datastore reads (data explorer, map & viz builders) --
         "datastore_search",
         "datastore_search_sql",

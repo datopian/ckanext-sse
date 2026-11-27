@@ -53,6 +53,7 @@ class TestAllowlists:
                        "follow_dataset",
                        # portal tabs showing the caller's own decisions
                        "my_access_requests", "my_data_reuse_submissions",
+                       "resource_activity_page",
                        # the frontend triggers Smart Meter token regeneration
                        "smart_meter_token_create",
                        # personal dashboards, managed from the portal

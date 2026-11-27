@@ -187,15 +187,15 @@ def my_access_requests(context, data_dict):
 
     result = []
     for r in requests:
-        decision = r.last_decision
         pkg = r.package
         org = r.organization
         result.append({
             "id": r.id,
             "status": r.status,
             "created_at": r.created_at.isoformat() if r.created_at else None,
-            "decided_at": decision.created_at.isoformat()
-            if decision and decision.created_at else None,
+            # This version keeps no decision history (added to main later), so
+            # there is no decision time to report; the portal omits it when null.
+            "decided_at": None,
             "message": r.message,
             # The reason only means something once a decision was made.
             "rejection_message": r.rejection_message

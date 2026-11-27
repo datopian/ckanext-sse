@@ -195,6 +195,10 @@ def my_access_requests(context, data_dict):
         dataset and organisation names and titles.
     """
     tk.check_access("my_access_requests", context, data_dict)
+    # CKAN lets an anonymous caller through an auth function that returns
+    # success, so refuse here instead of returning an empty list.
+    if tk.current_user.is_anonymous:
+        raise tk.NotAuthorized
 
     requests = PackageAccessRequest.get_by_user(tk.current_user.id)
     requests.sort(key=lambda r: r.created_at or datetime.datetime.min, reverse=True)
@@ -1064,6 +1068,10 @@ def my_data_reuse_submissions(context, data_dict):
     (SC-8 / AC-21). Feedback is only returned for rejected submissions.
     """
     tk.check_access("my_data_reuse_submissions", context, data_dict)
+    # CKAN lets an anonymous caller through an auth function that returns
+    # success, so refuse here instead of returning an empty list.
+    if tk.current_user.is_anonymous:
+        raise tk.NotAuthorized
 
     submissions = FormResponse.get_by_user(tk.current_user.id, include_all=True)
     submissions.sort(

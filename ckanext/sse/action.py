@@ -83,21 +83,31 @@ DEFAULT_ACTIVITY_SCAN_LIMIT = 50
 ACTIVITY_DIFF_TIME_BUDGET_SECONDS = 8
 
 
-@tk.side_effect_free
-def resource_activity_list(context, data_dict):
-    data_dict["offset"] = None
-    data_dict["limit"] = int(data_dict.get("limit") or DEFAULT_ACTIVITY_SCAN_LIMIT)
-    dashboard_activity_list_action = tk.get_action("dashboard_activity_list")
-    activities = dashboard_activity_list_action(context, data_dict)
+MAX_ACTIVITY_SCAN_LIMIT = 100
+
+
+def _resource_activity_batch(context, offset, limit):
+    """Scan one window of the user's dashboard activities.
+
+    Returns ``(items, next_offset)``: the activities in the window that changed
+    a resource (with their ``diff``), and where the next window starts, or
+    None when the user has nothing older.
+    """
+    activities = tk.get_action("dashboard_activity_list")(
+        context, {"limit": limit, "offset": offset})
     activity_diff_action = tk.get_action("activity_diff")
     response = []
     deadline = time.monotonic() + ACTIVITY_DIFF_TIME_BUDGET_SECONDS
+    processed = 0
     for activity in activities:
-        if time.monotonic() > deadline:
+        # At least one activity per call, so a retry always makes progress
+        # instead of stopping at the same place forever.
+        if processed and time.monotonic() > deadline:
             log.warning(
-                "resource_activity_list hit its time budget; returning %s items "
-                "from %s activities", len(response), len(activities))
+                "resource_activity batch hit its time budget; returning %s items "
+                "from %s of %s activities", len(response), processed, len(activities))
             break
+        processed += 1
         if not activity.get("data") or not activity.get("data").get("package"):
             continue
         try:
@@ -121,7 +131,34 @@ def resource_activity_list(context, data_dict):
                 response.append(activity)
         except Exception as e:
             log.error(e)
-    return response
+    # A full window may have older activities behind it; a short one cannot.
+    more = processed < len(activities) or len(activities) >= limit
+    return response, (offset + processed) if more else None
+
+
+@tk.side_effect_free
+def resource_activity_list(context, data_dict):
+    """First window only. Kept for callers that predate resource_activity_page."""
+    limit = min(int(data_dict.get("limit") or DEFAULT_ACTIVITY_SCAN_LIMIT),
+                MAX_ACTIVITY_SCAN_LIMIT)
+    items, _next = _resource_activity_batch(context, 0, limit)
+    return items
+
+
+@tk.side_effect_free
+def resource_activity_page(context, data_dict):
+    """One window of resource changes in the user's followed data.
+
+    :param offset: how many dashboard activities to skip (default 0).
+    :param limit: how many to scan, at most 100 (default 50).
+    :returns: ``{"items": [...], "next_offset": <int or None>}``; pass
+        ``next_offset`` back as ``offset`` to load the next window.
+    """
+    limit = min(int(data_dict.get("limit") or DEFAULT_ACTIVITY_SCAN_LIMIT),
+                MAX_ACTIVITY_SCAN_LIMIT)
+    offset = max(int(data_dict.get("offset") or 0), 0)
+    items, next_offset = _resource_activity_batch(context, offset, limit)
+    return {"items": items, "next_offset": next_offset}
 
 
 @tk.chained_action

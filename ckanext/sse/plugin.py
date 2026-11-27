@@ -262,6 +262,7 @@ class SsePlugin(plugins.SingletonPlugin):
         actions = {
             "package_create": action.package_create,
             "resource_activity_list": action.resource_activity_list,
+            "resource_activity_page": action.resource_activity_page,
             "package_collaborator_create": action.package_collaborator_create,
             "package_collaborator_delete": action.package_collaborator_delete,
             "request_access_to_dataset": action.request_access_to_dataset,

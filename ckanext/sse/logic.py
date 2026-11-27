@@ -355,8 +355,10 @@ def reuse_email_notification(reuse_data, _type, feedback=None):
                 "admin_name": email['name'],
                 "site_title": os.environ.get("CKAN_FRONTEND_SITE_TITLE")
                 or config.get("ckan.site_title"),
-                "site_url": os.environ.get("CKAN_FRONTEND_SITE_URL")
-                or config.get("ckan.site_url"),
+                # Trailing slash stripped: the templates append "/path", and
+                # CKAN_FRONTEND_SITE_URL is configured with one ("//" in links).
+                "site_url": (os.environ.get("CKAN_FRONTEND_SITE_URL")
+                             or config.get("ckan.site_url") or "").rstrip("/"),
                 "ckan_site_url": config.get("ckan.site_url"),
                 "data": reuse_data,
             }

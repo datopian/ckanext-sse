@@ -1,5 +1,6 @@
 from __future__ import unicode_literals
 import json
+import time
 import datetime
 from sqlalchemy import or_
 from ckan.common import _, asbool
@@ -74,15 +75,31 @@ def package_create(up_func, context, data_dict):
     return result
 
 
+# Each scanned activity costs one activity_diff (~50 ms), and the old limit of
+# 99999999 meant a user following a lot of data waited 20-45 s on dev (400-1200
+# activities), past Vercel's function timeout. Newest activities come first, so
+# a window of the latest ones is what the Activities tab actually needs.
+DEFAULT_ACTIVITY_SCAN_LIMIT = 50
+# Hard stop so a slow database can never push the response past the portal's
+# function timeout; whatever was diffed by then is returned.
+ACTIVITY_DIFF_TIME_BUDGET_SECONDS = 8
+
+
 @tk.side_effect_free
 def resource_activity_list(context, data_dict):
     data_dict["offset"] = None
-    data_dict["limit"] = 99999999
+    data_dict["limit"] = int(data_dict.get("limit") or DEFAULT_ACTIVITY_SCAN_LIMIT)
     dashboard_activity_list_action = tk.get_action("dashboard_activity_list")
     activities = dashboard_activity_list_action(context, data_dict)
     activity_diff_action = tk.get_action("activity_diff")
     response = []
+    deadline = time.monotonic() + ACTIVITY_DIFF_TIME_BUDGET_SECONDS
     for activity in activities:
+        if time.monotonic() > deadline:
+            log.warning(
+                "resource_activity_list hit its time budget; returning %s items "
+                "from %s activities", len(response), len(activities))
+            break
         if not activity.get("data") or not activity.get("data").get("package"):
             continue
         try:

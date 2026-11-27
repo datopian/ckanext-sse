@@ -133,6 +133,8 @@ def _generic_mail_vars(site_title=None, site_url=None):
         'site_title': site_title or os.environ.get('CKAN_FRONTEND_SITE_TITLE') or config.get('ckan.site_title'),
         'site_url': site_url or _portal_url(),
         'portal_url': _portal_url(),
+        # Where requesters read the status and the admin's reason.
+        'access_requests_url': _portal_url().rstrip('/') + '/my-followed-data/access-requests',
     }
 
 

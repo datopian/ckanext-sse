@@ -182,6 +182,46 @@ def package_collaborator_delete(up_func, context, data_dict):
     return result
 
 
+@tk.side_effect_free
+def my_access_requests(context, data_dict):
+    """List the signed-in user's own dataset access requests.
+
+    Takes no user id on purpose: the owner is always the caller, so one user
+    can never read another's requests. This is where a requester reads the
+    admin's reason, which is no longer sent by email (SC-8 / AC-21).
+
+    :returns: newest first; each item has id, status, created_at, decided_at,
+        message, rejection_message (only for rejected or revoked), and the
+        dataset and organisation names and titles.
+    """
+    tk.check_access("my_access_requests", context, data_dict)
+
+    requests = PackageAccessRequest.get_by_user(tk.current_user.id)
+    requests.sort(key=lambda r: r.created_at or datetime.datetime.min, reverse=True)
+
+    result = []
+    for r in requests:
+        decision = r.last_decision
+        pkg = r.package
+        org = r.organization
+        result.append({
+            "id": r.id,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "decided_at": decision.created_at.isoformat()
+            if decision and decision.created_at else None,
+            "message": r.message,
+            # The reason only means something once a decision was made.
+            "rejection_message": r.rejection_message
+            if r.status in ("rejected", "revoked") else None,
+            "package_name": pkg.name if pkg else None,
+            "package_title": (pkg.title or pkg.name) if pkg else None,
+            "organization_name": org.name if org else None,
+            "organization_title": (org.title or org.name) if org else None,
+        })
+    return result
+
+
 @logic.validate(package_request_access_schema)
 @tk.side_effect_free
 def request_access_to_dataset(context, data_dict):
@@ -996,11 +1036,57 @@ def data_reuse_patch(context, data_dict):
     old_state = existing_dict.get("state")
     new_state = data_dict.get("state")
 
+    # `feedback` is not a column, so update() would silently drop it and the
+    # submitter could never read it once the email stops carrying it. Keep it
+    # (and when the decision happened) in the JSONB payload. The public
+    # redaction in _public_reuse_dict is an allow-list, so neither leaks.
+    if old_state == "pending" and new_state in ["approved", "rejected"]:
+        decided_data = dict(existing_dict.get("data") or {})
+        decided_data["decided_at"] = datetime.datetime.utcnow().isoformat()
+        if feedback:
+            decided_data["feedback"] = feedback
+        patched_dict["data"] = decided_data
+    patched_dict.pop("feedback", None)
+
     submission = FormResponse.update(id, **patched_dict)
     if old_state == "pending" and new_state in ["approved", "rejected"]:
         reuse_email_notification(submission.as_dict(), _type=new_state, feedback=feedback)
 
     return submission.as_dict()
+
+
+@tk.side_effect_free
+def my_data_reuse_submissions(context, data_dict):
+    """List the signed-in user's own data reuse submissions, newest first.
+
+    Takes no user id: rows are always the caller's. This is where a submitter
+    reads the moderators' feedback, which is no longer sent by email
+    (SC-8 / AC-21). Feedback is only returned for rejected submissions.
+    """
+    tk.check_access("my_data_reuse_submissions", context, data_dict)
+
+    submissions = FormResponse.get_by_user(tk.current_user.id, include_all=True)
+    submissions.sort(
+        key=lambda x: x.submitted_at or datetime.datetime.min, reverse=True)
+
+    result = []
+    for sub in submissions:
+        data = sub.data or {}
+        pkg = sub.package
+        org = model.Group.get(pkg.owner_org) if pkg and pkg.owner_org else None
+        result.append({
+            "id": sub.id,
+            "type": sub.type,
+            "state": sub.state,
+            "title": data.get("title"),
+            "submitted_at": sub.submitted_at.isoformat() if sub.submitted_at else None,
+            "decided_at": data.get("decided_at"),
+            "feedback": data.get("feedback") if sub.state == "rejected" else None,
+            "package_name": pkg.name if pkg else None,
+            "package_title": (pkg.title or pkg.name) if pkg else None,
+            "organization_name": org.name if org else None,
+        })
+    return result
 
 
 def data_reuse_delete(context, data_dict):

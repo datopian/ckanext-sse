@@ -2,7 +2,7 @@ Dear {{ data.data.full_name or "Data Submitter" }},
 
 Your data reuse submission was not approved.
 
-Sign in to the portal to view the decision and feedback: {{ site_url }}
+Sign in to the portal to view the decision and feedback: {{ site_url }}/my-followed-data/reuse-submissions
 
 Best regards,
 The {{ site_title }} Team

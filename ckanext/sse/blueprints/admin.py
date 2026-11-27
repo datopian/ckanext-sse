@@ -161,3 +161,36 @@ blueprint.add_url_rule(
     "/force-expire-password", methods=["POST"], view_func=force_expire_password
 )
 
+
+def daily_report_index() -> str:
+    denied = _require_sysadmin()
+    if denied is not None:
+        return denied
+    context = cast(
+        Context,
+        {
+            "model": model,
+            "session": model.Session,
+            "user": current_user.name,
+            "auth_user_obj": current_user,
+        },
+    )
+    # Same action the daily report email used to be built from; it is
+    # sysadmin-only on its own, and returns an errors dict (not a list) if not.
+    result = logic.get_action("daily_report_activity")(context, {})
+    users = result if isinstance(result, list) else []
+    return base.render(
+        "admin/daily-report.html",
+        extra_vars={"users": users, "report_date": _yesterday()},
+    )
+
+
+def _yesterday():
+    import datetime
+    # The action reports the previous server day (datetime.date.today() - 1).
+    return datetime.date.today() - datetime.timedelta(days=1)
+
+
+blueprint.add_url_rule(
+    "/daily-report", methods=["GET"], view_func=daily_report_index
+)
